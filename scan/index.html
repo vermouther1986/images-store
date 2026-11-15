@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#06070D">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>四驱店铺 扫码</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;700&family=Rajdhani:wght@500;600;700&display=swap">
+<style>
+:root{--bg:#06070D;--panel:#0D1120;--fg:#E6F7FF;--muted:#7F93AD;--line:#1C2A44;--accent:#00EAFF;--mag:#FF2BD6;--ok:#39FF9F;--warn:#FCEE0A;--bad:#FF3B6B;
+  --f:"Rajdhani","Noto Sans SC","PingFang SC","Hiragino Sans",system-ui,sans-serif;--disp:"Orbitron",var(--f);color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);background-image:linear-gradient(rgba(0,234,255,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(0,234,255,.04) 1px,transparent 1px);background-size:28px 28px;color:var(--fg);font-family:var(--f);font-size:16px;
+  padding:max(14px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(30px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+h1{font-family:var(--disp);font-size:20px;color:var(--accent);text-shadow:0 0 10px rgba(0,234,255,.5);margin:4px 0 2px;letter-spacing:.06em}
+.sub{font-size:10px;letter-spacing:.25em;color:var(--mag);margin-bottom:16px}
+.card{background:var(--panel);border:1px solid rgba(0,234,255,.3);padding:14px;margin:12px 0;clip-path:polygon(0 0,calc(100% - 10px) 0,100% 10px,100% 100%,10px 100%,0 calc(100% - 10px))}
+button{font:inherit;font-weight:700;border:1px solid var(--accent);background:transparent;color:var(--accent);padding:12px 16px;width:100%;cursor:pointer;
+  clip-path:polygon(0 0,calc(100% - 9px) 0,100% 9px,100% 100%,9px 100%,0 calc(100% - 9px))}
+button.pri{background:var(--accent);color:#00131A;box-shadow:0 0 14px rgba(0,234,255,.5)}
+button.big{font-size:20px;padding:20px}
+button:disabled{opacity:.45}
+input{font:inherit;font-size:16px;width:100%;background:#070B16;color:var(--fg);border:1px solid var(--line);padding:11px 12px;margin:4px 0 10px}
+input:focus{outline:none;border-color:var(--accent)}
+.row{display:flex;gap:10px;align-items:center}
+.muted{color:var(--muted);font-size:14px}
+.tag{display:inline-block;border:1px solid currentColor;padding:0 7px;font-size:13px}
+.ok{color:var(--ok)} .warn{color:var(--warn)} .bad{color:var(--bad)}
+.item{display:grid;grid-template-columns:72px 1fr;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
+.item img{width:72px;height:72px;object-fit:contain;background:#fff}
+.big-img{width:100%;max-height:260px;object-fit:contain;background:#fff}
+.num{font-family:var(--disp);color:var(--accent);font-size:22px}
+.qty{width:76px;margin:0;text-align:center}
+#reader{width:100%;background:#000;margin-top:10px}
+.msg{padding:12px;margin:10px 0;border:1px solid}
+.msg.ok{border-color:var(--ok);background:rgba(57,255,159,.08)} .msg.bad{border-color:var(--bad);background:rgba(255,59,107,.1)} .msg.warn{border-color:var(--warn);background:rgba(252,238,10,.08)}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<h1>四驱店铺 · 扫码</h1>
+<div class="sub">MINI4WD // SHOP OS · MOBILE</div>
+
+<div id="login" class="card" hidden>
+  <b>登录</b><p class="muted">用你在 Supabase 建的那个账号（邮箱 + 密码）。登录一次，以后打开就不用再登。</p>
+  <label class="muted" for="em">邮箱</label><input id="em" type="email" autocomplete="username">
+  <label class="muted" for="pw">密码</label><input id="pw" type="password" autocomplete="current-password">
+  <button class="pri" id="loginBtn">登录</button>
+  <div id="loginMsg"></div>
+</div>
+
+<div id="app" hidden>
+  <button class="pri big" id="scanBtn">📷 扫码</button>
+  <div id="reader" hidden></div>
+  <div class="row" style="margin-top:10px"><input id="manual" placeholder="扫不出来：手动输入 SKU" style="margin:0"><button id="goBtn" style="width:90px">查看</button></div>
+  <p class="muted">扫电脑屏幕上的二维码：<b>进货单</b> → 对着货逐个入库；<b>订单</b> → 打包核对、标记已发货；<b>商品</b> → 看库存。原来的条形码也能扫。</p>
+  <div id="view"></div>
+  <p class="muted" style="margin-top:30px"><a href="#" id="logout" style="color:var(--muted)">退出登录</a></p>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script>
+const SUPABASE_URL = 'https://omiwwwfruwpgtivtzxna.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_TJb3F7opoaO3g_TikVYQjg_0JHan-lx';  // 公开用的钥匙；没登录什么都读不到
+const IMG = 'https://raw.githubusercontent.com/vermouther1986/images-store/main/images/';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const img = sku => IMG + encodeURIComponent(sku) + '.jpg';
+const msg = (cls, text) => `<div class="msg ${cls}">${text}</div>`;
+const name = s => esc(String(s || '').split(' / ').slice(0, 2).join(' / '));
+const t = s => s ? new Date(s).toLocaleString('ja-JP', {month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit'}) : '';
+function buzz() { try { navigator.vibrate && navigator.vibrate(80); } catch {} }
+
+async function boot() {
+  const {data} = await sb.auth.getSession();
+  $('#login').hidden = !!data.session; $('#app').hidden = !data.session;
+  // 用手机相机直接扫电脑上的码，会带着 #PB:12 这样的尾巴打开这个页面
+  if (data.session && location.hash.length > 1) {
+    const code = decodeURIComponent(location.hash.slice(1));
+    history.replaceState(null, '', location.pathname);
+    handle(code);
+  }
+}
+$('#loginBtn').onclick = async () => {
+  $('#loginBtn').disabled = true;
+  const {error} = await sb.auth.signInWithPassword({email: $('#em').value.trim(), password: $('#pw').value});
+  $('#loginBtn').disabled = false;
+  if (error) { $('#loginMsg').innerHTML = msg('bad', '登录失败：邮箱或密码不对'); return; }
+  boot();
+};
+$('#logout').onclick = async e => { e.preventDefault(); await sb.auth.signOut(); boot(); };
+
+// ───────── 扫码 ─────────
+let scanner = null;
+$('#scanBtn').onclick = async () => {
+  if (scanner) { await stopScan(); return; }
+  $('#reader').hidden = false; $('#scanBtn').textContent = '停止扫码';
+  scanner = new Html5Qrcode('reader', {formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE, Html5QrcodeSupportedFormats.CODE_128]});
+  try {
+    await scanner.start({facingMode: 'environment'}, {fps: 10, qrbox: {width: 260, height: 260}}, async text => { buzz(); await stopScan(); handle(text); });
+  } catch (e) { await stopScan(); $('#view').innerHTML = msg('bad', '打不开摄像头：请在浏览器里允许使用相机。也可以在下面手动输入 SKU。'); }
+};
+async function stopScan() {
+  if (scanner) { try { await scanner.stop(); } catch {} try { scanner.clear(); } catch {} }
+  scanner = null; $('#reader').hidden = true; $('#scanBtn').textContent = '📷 扫码';
+}
+$('#goBtn').onclick = () => handle($('#manual').value);
+
+function handle(text) {
+  text = String(text || '').trim();
+  const h = text.indexOf('#');  // 新二维码是网址：…/scan/#PB:12
+  if (/^https?:\/\//i.test(text) && h >= 0) text = decodeURIComponent(text.slice(h + 1));
+  if (text.startsWith('PB:')) return showBatch(text.slice(3));
+  if (text.startsWith('OR:')) return showOrder(text.slice(3));
+  if (/^[A-Z0-9]+-\d{6}$/i.test(text)) return showProduct(text.toUpperCase());
+  $('#view').innerHTML = msg('warn', `看不懂这个码：${esc(text)}<br>请扫店铺软件里显示的二维码，或商品的条形码。`);
+}
+async function q(p) { const {data, error} = await p; if (error) throw new Error(error.message); return data; }
+
+// ───────── 进货单：逐个入库 ─────────
+async function showBatch(id) {
+  $('#view').innerHTML = '<p class="muted">读取进货单…</p>';
+  try {
+    const b = await q(sb.from('purchase_batches').select('*, purchase_items(id, sku, qty, received_qty, products(cn_name, ja_name))').eq('id', id).single());
+    const items = b.purchase_items.sort((x, y) => x.sku.localeCompare(y.sku));
+    const left = items.filter(i => i.received_qty < i.qty).length;
+    $('#view').innerHTML = `<div class="card"><b>进货单 ${esc(b.batch_date)}</b> ${b.counted ? '' : '<span class="tag warn">盘点前（不计库存）</span>'}
+      <div class="muted">${esc(b.title)} · ${items.length} 种 · 还有 ${left} 种没入库</div>
+      ${items.map(i => `<div class="item"><img src="${img(i.sku)}" alt="">
+        <div><div>${name(i.products?.cn_name)}</div><div class="muted">${esc(i.sku)}</div>
+        <div>应到 <b>${i.qty}</b> · 已到 <b class="${i.received_qty >= i.qty ? 'ok' : 'warn'}">${i.received_qty}</b></div>
+        ${b.counted && i.received_qty < i.qty ? `<div class="row" style="margin-top:6px">这次到 <input class="qty" type="number" inputmode="numeric" min="1" max="${i.qty - i.received_qty}" value="${i.qty - i.received_qty}" id="n_${i.id}"> 件
+          <button class="pri" style="width:auto;padding:10px 14px" data-rcv="${i.id}" data-cur="${i.received_qty}" data-max="${i.qty}">✓ 入库</button></div>`
+          : (b.counted ? '<span class="tag ok">已入库</span>' : '')}</div></div>`).join('')}</div>`;
+    document.querySelectorAll('[data-rcv]').forEach(btn => btn.onclick = () => receive(btn, id));
+  } catch (e) { $('#view').innerHTML = msg('bad', '找不到这个进货单：' + esc(e.message)); }
+}
+async function receive(btn, batchId) {
+  const cur = Number(btn.dataset.cur), max = Number(btn.dataset.max), n = Number($('#n_' + btn.dataset.rcv).value);
+  if (!(n > 0) || cur + n > max) { alert(`这次最多入库 ${max - cur} 件`); return; }
+  btn.disabled = true;
+  // 只在「已到数量还是我看到的那个数」时才改：别的设备刚入过库，就不会重复加
+  const rows = await q(sb.from('purchase_items').update({received_qty: cur + n}).eq('id', btn.dataset.rcv).eq('received_qty', cur).select());
+  if (!rows.length) alert('这一行刚刚被别的设备改过，已重新读取，请再看一下');
+  buzz(); showBatch(batchId);
+}
+
+// ───────── 订单：打包核对、标记已发货 ─────────
+async function showOrder(id) {
+  $('#view').innerHTML = '<p class="muted">读取订单…</p>';
+  try {
+    const o = await q(sb.from('orders').select('*, order_lines(sku, qty, products(cn_name, ja_name))').eq('id', id).single());
+    const head = {'待发货': msg('warn', '待发货：对着下面的图核对商品和件数，没问题就点「标记已发货」。库存已经在收到邮件时扣过了，这里不会再扣。'),
+      '已发货': msg('ok', `已经发过货了（${t(o.shipped_at)}）。不用再处理，也不会重复扣库存。`),
+      '待确认': msg('bad', '这单还没确认是哪个商品，请先在电脑上的「出库 / 订单」里选商品。'),
+      '已撤销': msg('bad', '这单已经撤销（煤炉取消或记错），不要发货。')}[o.status] || '';
+    $('#view').innerHTML = `<div class="card"><b>${esc(o.mercari_item_id || '手动出库')}</b><div class="muted">${esc(o.title)}</div>${head}
+      ${o.order_lines.map(l => `<div class="item"><img src="${img(l.sku)}" alt=""><div><div>${name(l.products?.cn_name)}</div>
+        <div class="muted">${esc(l.sku)}</div><div class="num">× ${l.qty}</div></div></div>`).join('')}
+      ${o.status === '待发货' ? '<button class="pri big" id="shipBtn" style="margin-top:14px">✓ 核对无误，标记已发货</button>' : ''}</div>`;
+    if ($('#shipBtn')) $('#shipBtn').onclick = async () => {
+      $('#shipBtn').disabled = true;
+      await q(sb.from('orders').update({status: '已发货', shipped_at: new Date().toISOString()}).eq('id', id).eq('status', '待发货'));
+      buzz(); showOrder(id);
+    };
+  } catch (e) { $('#view').innerHTML = msg('bad', '找不到这张订单：' + esc(e.message)); }
+}
+
+// ───────── 商品：看库存 ─────────
+async function showProduct(sku) {
+  $('#view').innerHTML = '<p class="muted">读取商品…</p>';
+  try {
+    const [p, st, way, ship] = await Promise.all([
+      q(sb.from('products').select('*').eq('sku', sku).maybeSingle()),
+      q(sb.from('stock_now').select('stock').eq('sku', sku).maybeSingle()),
+      q(sb.from('purchase_items').select('qty, received_qty, batch_id, purchase_batches(batch_date, counted)').eq('sku', sku)),
+      q(sb.from('order_lines').select('qty, order_id, orders(status, title, mercari_item_id)').eq('sku', sku))]);
+    if (!p) { $('#view').innerHTML = msg('bad', '商品库里没有这个 SKU：' + esc(sku)); return; }
+    const onWay = way.filter(w => w.purchase_batches?.counted && w.received_qty < w.qty);
+    const toShip = ship.filter(s => s.orders?.status === '待发货');
+    $('#view').innerHTML = `<div class="card"><img class="big-img" src="${img(sku)}" alt="">
+      <div style="margin-top:8px;font-size:18px">${name(p.cn_name)}</div><div class="muted">${esc(p.ja_name)}</div><div class="muted">${esc(sku)}</div>
+      <div style="margin-top:8px">当前库存 <span class="num">${st ? st.stock : 0}</span> 件</div>
+      ${onWay.map(w => `<button style="margin-top:8px" data-pb="${w.batch_id}">在途：${esc(w.purchase_batches.batch_date)} 进货单，还差 ${w.qty - w.received_qty} 件 → 去入库</button>`).join('')}
+      ${toShip.map(s => `<button style="margin-top:8px" data-or="${s.order_id}">待发货：${esc(s.orders.mercari_item_id || '手动')} ×${s.qty} → 去核对</button>`).join('')}</div>`;
+    document.querySelectorAll('[data-pb]').forEach(b => b.onclick = () => showBatch(b.dataset.pb));
+    document.querySelectorAll('[data-or]').forEach(b => b.onclick = () => showOrder(b.dataset.or));
+  } catch (e) { $('#view').innerHTML = msg('bad', esc(e.message)); }
+}
+window.addEventListener('hashchange', boot);
+boot();
+</script>
+</body>
+</html>
