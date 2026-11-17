@@ -60,7 +60,7 @@ body{padding-bottom:calc(84px + env(safe-area-inset-bottom))}
 </head>
 <body>
 <h1>四驱店铺</h1>
-<div class="sub">MINI4WD // SHOP OS · MOBILE</div>
+<div class="sub">MINI4WD // SHOP OS · MOBILE · <span id="ver"></span></div>
 
 <div id="login" class="card" hidden>
   <b>登录</b><p class="muted">用你在 Supabase 建的那个账号（邮箱 + 密码）。登录一次，以后打开就不用再登。</p>
@@ -433,6 +433,25 @@ document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => { tab(b
 $('#refBtn').onclick = load;
 setInterval(() => { if (!document.hidden && !$('#app').hidden && $('#sheet').hidden) load(); }, 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden && !$('#app').hidden) load(); });
+
+// 自动更新：手机会把网页存一份旧的；打开时去网上看有没有新版本，有就马上换成新的
+const VERSION = '2026-11-18b';
+$('#ver').textContent = '版本 ' + VERSION;
+(async () => {
+  try {
+    const txt = await (await fetch(location.pathname + '?check=' + Date.now(), {cache: 'no-store'})).text();
+    const v = (txt.match(/const VERSION = '([^']+)'/) || [])[1];
+    if (v && v !== VERSION && !location.search.includes('v=' + v)) location.replace(location.pathname + '?v=' + v + location.hash);
+  } catch {}
+})();
+document.addEventListener('visibilitychange', async () => {
+  if (document.hidden) return;
+  try {
+    const txt = await (await fetch(location.pathname + '?check=' + Date.now(), {cache: 'no-store'})).text();
+    const v = (txt.match(/const VERSION = '([^']+)'/) || [])[1];
+    if (v && v !== VERSION && !location.search.includes('v=' + v)) location.replace(location.pathname + '?v=' + v);
+  } catch {}
+});
 
 window.addEventListener('hashchange', boot);
 boot();
