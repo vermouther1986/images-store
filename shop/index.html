@@ -76,6 +76,9 @@ body{padding-bottom:calc(84px + env(safe-area-inset-bottom))}
   <section id="tProd" hidden>
     <input id="pq" placeholder="搜 SKU / 中文名 / 日文名" type="search">
     <div class="chips" id="pchips"></div><div id="plist"></div></section>
+  <section id="tList" hidden>
+    <input id="lq" placeholder="搜上新商品（中文名 / 日文 / SKU）" type="search">
+    <div class="chips" id="lchips"></div><div id="llist"></div></section>
   <section id="tOrd" hidden><div class="chips" id="ochips"></div><div id="olist"></div></section>
   <section id="tScan" hidden>
     <button class="pri big" id="scanBtn">📷 扫码</button>
@@ -84,7 +87,7 @@ body{padding-bottom:calc(84px + env(safe-area-inset-bottom))}
     <p class="muted">扫电脑屏幕上的二维码：<b>进货单</b> → 对着货逐个入库；<b>订单</b> → 打包核对、标记已发货；<b>商品</b> → 看库存。原来的条形码也能扫。</p>
     <p class="muted" style="margin-top:30px"><a href="#" id="logout" style="color:var(--muted)">退出登录</a></p></section>
   <nav class="tabs">
-    <button data-tab="tHome" class="on"><span>📊</span>概况</button><button data-tab="tProd"><span>📦</span>商品</button>
+    <button data-tab="tHome" class="on"><span>📊</span>概况</button><button data-tab="tProd"><span>📦</span>商品</button><button data-tab="tList"><span>🏷️</span>上新</button>
     <button data-tab="tOrd"><span>🧾</span>订单<i id="obadge" hidden></i></button><button data-tab="tScan"><span>📷</span>扫码</button></nav>
 </div>
 <div id="sheet" hidden><button id="back" style="width:auto;padding:8px 14px;margin-bottom:8px">← 返回</button><div id="view"></div></div>
@@ -239,7 +242,7 @@ async function load() {
   try {
     const [stock, lst, ords, items, sets] = await Promise.all([
       q(sb.from('stock_now').select('*')),
-      q(sb.from('listings').select('listing_sku,status,price_jpy,title_manual,title_auto,mercari_item_id')),
+      q(sb.from('listings').select('listing_sku,status,price_jpy,title_manual,title_auto,description,mercari_item_id,fields,updated_at')),
       q(sb.from('orders').select('id,mercari_item_id,title,price_jpy,sold_at,status,counted,source,shipped_at,order_lines(sku,qty)').order('sold_at', {ascending: false}).limit(400)),
       q(sb.from('purchase_items').select('sku,qty,received_qty,purchase_batches(counted)')),
       q(sb.from('settings').select('key,value').in('key', ['煤炉手续费', '运费(円)', '包装材料费(円)', '汇率 人民币→日元']))]);
@@ -253,12 +256,98 @@ async function load() {
     $('#upd').textContent = '更新于 ' + D.at.toLocaleTimeString('ja-JP', {hour: '2-digit', minute: '2-digit', second: '2-digit'}) + ' · 每分钟自动刷新';
     const need = ords.filter(o => o.counted && (o.status === '待确认' || o.status === '待发货')).length;
     $('#obadge').hidden = !need; $('#obadge').textContent = need;
-    drawHome(); drawProd(); drawOrd();
+    drawHome(); drawProd(); drawOrd(); drawList();
   } catch (e) {
     $('#upd').innerHTML = `<span class="bad">读取失败：${esc(e.message)}</span>`;
   } finally { loading = false; }
 }
-window.renderWith = d => { D = d; drawHome(); drawProd(); drawOrd(); };  // 测试用
+window.renderWith = d => { D = d; drawHome(); drawProd(); drawOrd(); drawList(); };  // 测试用
+
+// ───────── 上新：价格、利润、标题、说明（和电脑上新页同一份资料）─────────
+let LF = '待上架';
+const partsOf = s => String(s).split('+').map(p => { const [b, n] = p.split('*'); return {b, n: +n || 1}; });
+const fnum = v => { const x = parseFloat(String(v ?? '').replace(/[^\d.]/g, '')); return isNaN(x) ? null : x; };
+// 老资料（从上新表搬来的）栏目名是中文，新保存的是英文 → 统一成英文
+const LAB = {'中文名': 'cn', '日文商品名(核心词)': 'ja', '单价RMB': 'cost_rmb', '每单进货数量': 'qty', '成本JPY(日元进货时手填)': 'cost_jpy_in', '数量表示': 'qty_text'};
+const F_ = l => { if (!l._f) { l._f = {}; for (const [k, v] of Object.entries(l.fields || {})) { const e = LAB[k] || k; if (v !== '' && v != null) l._f[e] = v; else if (!(e in l._f)) l._f[e] = v; } } return l._f; };
+function lCost(l) {  // 和电脑上的公式一样：成本 = 单价RMB × 汇率 × 件数（组合按各件相加）；日元进价优先
+  const f = F_(l);
+  if (fnum(f.cost_jpy_in) != null) return fnum(f.cost_jpy_in);
+  let rmb = fnum(f.cost_rmb);
+  if (rmb == null && /[+*]/.test(l.listing_sku)) {
+    rmb = 0;
+    for (const p of partsOf(l.listing_sku)) {
+      const one = fnum(D.L[p.b] ? F_(D.L[p.b]).cost_rmb : null) ?? (D.P[p.b]?.unit_price_rmb != null ? D.P[p.b].unit_price_rmb * 1.06 : null);
+      if (one == null) return null; rmb += one * p.n;
+    }
+  }
+  return rmb == null ? null : Math.round(rmb * D.rate * Math.max(1, fnum(f.qty) || 1));
+}
+const lTitle = l => l.title_manual || l.title_auto || '';
+const lName = l => full(F_(l).cn || D.P[l.listing_sku]?.cn_name || l.listing_sku);
+const lImg = l => img(partsOf(l.listing_sku)[0].b);
+function lProfit(l, price) {
+  const c = lCost(l); if (c == null || !price) return null;
+  const p = Math.round(price * (1 - D.fee) - c - D.ship); return {p, m: p / price, total: c + D.ship};
+}
+function drawList() {
+  const rows = Object.values(D.L);
+  const k = ($('#lq').value || '').trim().toLowerCase();
+  const F = ['待上架', '已上架', '停售', '全部'];
+  $('#lchips').innerHTML = F.map(f => `<button class="${f === LF ? 'on' : ''}" data-lf="${f}">${f} ${rows.filter(l => f === '全部' || l.status === f).length}</button>`).join('');
+  const list = rows.filter(l => (LF === '全部' || l.status === LF) && (!k || `${l.listing_sku} ${F_(l).cn || ''} ${F_(l).ja || ''} ${lTitle(l)}`.toLowerCase().includes(k)))
+    .sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')));
+  $('#llist').innerHTML = list.map(l => { const pf = lProfit(l, l.price_jpy); const combo = /[+*]/.test(l.listing_sku); return `<div class="row2" data-ls="${esc(l.listing_sku)}">
+    <img loading="lazy" src="${lImg(l)}" alt="">
+    <div><div class="n">${lName(l)}${combo ? ` <span class="tag">${l.listing_sku.includes('+') ? '组合' : '×' + partsOf(l.listing_sku)[0].n}</span>` : ''}</div>
+      <div class="m">${esc(l.listing_sku)}${l.mercari_item_id ? ' · ' + esc(l.mercari_item_id) : ''}</div></div>
+    <div class="r"><div style="font-size:16px;font-weight:700">${yen(l.price_jpy)}</div>${pf ? `<div class="${pf.p < 0 ? 'bad' : pf.m < .35 ? 'warn' : 'ok'}">赚 ${yen(pf.p)}</div>` : ''}</div></div>`; }).join('')
+    || '<p class="muted">没有符合的上新商品</p>';
+  document.querySelectorAll('[data-lf]').forEach(b => b.onclick = () => { LF = b.dataset.lf; drawList(); });
+  document.querySelectorAll('#llist [data-ls]').forEach(e => e.onclick = () => showListing(e.dataset.ls));
+}
+$('#lq').oninput = () => D && drawList();
+function copyText(text, what) {
+  (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(() => alert(`${what}已复制`))
+    .catch(() => { const t = document.createElement('textarea'); t.value = text; document.body.appendChild(t); t.select(); document.execCommand('copy'); t.remove(); alert(`${what}已复制`); });
+}
+function showListing(sku) {
+  openSheet();
+  const l = D.L[sku]; if (!l) { $('#view').innerHTML = msg('bad', '找不到这个上新商品'); return; }
+  const stock = Math.min(...partsOf(sku).map(p => Math.floor((D.P[p.b]?.stock || 0) / p.n)));
+  const pf = lProfit(l, l.price_jpy);
+  $('#view').innerHTML = `<div class="card"><img class="big-img" src="${lImg(l)}" alt="">
+      <div style="margin-top:8px;font-size:18px">${lName(l)}</div><div class="muted">${esc(sku)} · 可卖 ${stock} ${/[+*]/.test(sku) ? '套' : '件'}</div>
+      <div class="row" style="margin-top:8px;justify-content:space-between"><span class="tag ${l.status === '已上架' ? 'ok' : 'warn'}">${esc(l.status)}</span>
+        <span><span class="num">${yen(l.price_jpy)}</span>${pf ? `　<span class="${pf.m < .35 ? 'warn' : 'ok'}">赚 ${yen(pf.p)}（${(pf.m * 100).toFixed(0)}%）</span>` : ''}</span></div></div>
+    <div class="card"><b>讲价试算</b> <span class="muted" style="font-size:13px">输入对方出的价</span>
+      <div class="row" style="margin-top:8px"><input id="tryP" type="number" inputmode="numeric" value="${l.price_jpy || ''}" style="margin:0;font-size:22px;font-weight:700"><span>円</span></div>
+      <div class="row" style="margin-top:8px;flex-wrap:wrap">${[-100, -50, -10, 10, 50].map(d => `<button data-d="${d}" style="width:auto;flex:1;padding:8px 0">${d > 0 ? '+' : ''}${d}</button>`).join('')}</div>
+      <div id="tryOut" style="margin-top:10px;font-size:16px"></div></div>
+    <div class="card"><div class="row" style="justify-content:space-between"><b>标题</b><button id="cpT" style="width:auto;padding:6px 12px">复制标题</button></div>
+      <div style="margin-top:6px;user-select:text">${esc(lTitle(l))}</div><div class="muted" style="font-size:12.5px">${[...lTitle(l)].length} / 40 字</div></div>
+    <div class="card"><div class="row" style="justify-content:space-between"><b>商品说明</b><button id="cpD" style="width:auto;padding:6px 12px">复制说明</button></div>
+      <div style="margin-top:6px;white-space:pre-wrap;font-size:14px;user-select:text;max-height:260px;overflow:auto">${esc(l.description || '')}</div></div>
+    ${l.mercari_item_id ? `<a href="https://jp.mercari.com/item/${esc(l.mercari_item_id)}" target="_blank" rel="noopener"><button>在煤炉打开这个商品 ↗</button></a>` : ''}
+    <div class="card"><b>上架状态</b><div class="row" style="margin-top:8px">${['待上架', '已上架', '停售'].map(s => `<button data-st="${s}" class="${s === l.status ? 'pri' : ''}" style="flex:1">${s}</button>`).join('')}</div>
+      <p class="muted" style="font-size:12.5px">改价格、标题、出图请在电脑上改。</p></div>`;
+  const tryDraw = () => {
+    const v = +$('#tryP').value, r = lProfit(l, v);
+    $('#tryOut').innerHTML = !r ? '<span class="muted">缺成本，算不了</span>' : `到手 <b>${yen(Math.floor(v * (1 - D.fee)))}</b>　利润 <b class="${r.p < 0 ? 'bad' : r.m < .35 ? 'warn' : 'ok'}" style="font-size:22px">${r.p < 0 ? '−' : ''}${yen(Math.abs(r.p))}</b>　<b class="${r.p < 0 ? 'bad' : r.m < .35 ? 'warn' : 'ok'}">${(r.m * 100).toFixed(1)}%</b>
+      <div class="muted" style="font-size:13px;margin-top:4px">${r.p < 0 ? '⚠ 亏本' : r.m < .35 ? '比保底利润 35% 低' : '可以接受'} · 保本价 ${yen(Math.ceil(r.total / (1 - D.fee)))}</div>`;
+  };
+  $('#tryP').oninput = tryDraw;
+  document.querySelectorAll('[data-d]').forEach(b => b.onclick = () => { $('#tryP').value = Math.max(0, (+$('#tryP').value || 0) + +b.dataset.d); tryDraw(); });
+  tryDraw();
+  $('#cpT').onclick = () => copyText(lTitle(l), '标题');
+  $('#cpD').onclick = () => copyText(l.description || '', '商品说明');
+  document.querySelectorAll('[data-st]').forEach(b => b.onclick = async () => {
+    if (b.dataset.st === l.status) return;
+    if (!confirm(`改成「${b.dataset.st}」？`)) return;
+    try { await q(sb.from('listings').update({status: b.dataset.st, updated_at: new Date().toISOString()}).eq('listing_sku', sku));
+      l.status = b.dataset.st; buzz(); showListing(sku); } catch (e) { alert('没改成：' + e.message); }
+  });
+}
 
 const valid = o => o.status !== '已撤销' && o.status !== '待确认';
 const dayKey = d => { const x = new Date(d); return `${x.getFullYear()}-${x.getMonth() + 1}-${x.getDate()}`; };
