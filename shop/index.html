@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#06070D">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>四驱店铺</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;700&family=Rajdhani:wght@500;600;700&display=swap">
+<style>
+:root{--bg:#06070D;--panel:#0D1120;--fg:#E6F7FF;--muted:#7F93AD;--line:#1C2A44;--accent:#00EAFF;--mag:#FF2BD6;--ok:#39FF9F;--warn:#FCEE0A;--bad:#FF3B6B;
+  --f:"Rajdhani","Noto Sans SC","PingFang SC","Hiragino Sans",system-ui,sans-serif;--disp:"Orbitron",var(--f);color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);background-image:linear-gradient(rgba(0,234,255,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(0,234,255,.04) 1px,transparent 1px);background-size:28px 28px;color:var(--fg);font-family:var(--f);font-size:16px;
+  padding:max(14px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(30px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+h1{font-family:var(--disp);font-size:20px;color:var(--accent);text-shadow:0 0 10px rgba(0,234,255,.5);margin:4px 0 2px;letter-spacing:.06em}
+.sub{font-size:10px;letter-spacing:.25em;color:var(--mag);margin-bottom:16px}
+.card{background:var(--panel);border:1px solid rgba(0,234,255,.3);padding:14px;margin:12px 0;clip-path:polygon(0 0,calc(100% - 10px) 0,100% 10px,100% 100%,10px 100%,0 calc(100% - 10px))}
+button{font:inherit;font-weight:700;border:1px solid var(--accent);background:transparent;color:var(--accent);padding:12px 16px;width:100%;cursor:pointer;
+  clip-path:polygon(0 0,calc(100% - 9px) 0,100% 9px,100% 100%,9px 100%,0 calc(100% - 9px))}
+button.pri{background:var(--accent);color:#00131A;box-shadow:0 0 14px rgba(0,234,255,.5)}
+button.big{font-size:20px;padding:20px}
+button:disabled{opacity:.45}
+input{font:inherit;font-size:16px;width:100%;background:#070B16;color:var(--fg);border:1px solid var(--line);padding:11px 12px;margin:4px 0 10px}
+input:focus{outline:none;border-color:var(--accent)}
+.row{display:flex;gap:10px;align-items:center}
+.muted{color:var(--muted);font-size:14px}
+.tag{display:inline-block;border:1px solid currentColor;padding:0 7px;font-size:13px}
+.ok{color:var(--ok)} .warn{color:var(--warn)} .bad{color:var(--bad)}
+.item{display:grid;grid-template-columns:72px 1fr;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
+.item img{width:72px;height:72px;object-fit:contain;background:#fff}
+.big-img{width:100%;max-height:260px;object-fit:contain;background:#fff}
+.num{font-family:var(--disp);color:var(--accent);font-size:22px}
+.qty{width:76px;margin:0;text-align:center}
+#reader{width:100%;background:#000;margin-top:10px}
+.msg{padding:12px;margin:10px 0;border:1px solid}
+.msg.ok{border-color:var(--ok);background:rgba(57,255,159,.08)} .msg.bad{border-color:var(--bad);background:rgba(255,59,107,.1)} .msg.warn{border-color:var(--warn);background:rgba(252,238,10,.08)}
+[hidden]{display:none!important}
+body{padding-bottom:calc(84px + env(safe-area-inset-bottom))}
+.tabs{position:fixed;left:0;right:0;bottom:0;display:flex;background:rgba(13,17,32,.97);border-top:1px solid rgba(0,234,255,.35);padding-bottom:env(safe-area-inset-bottom);z-index:40}
+.tabs button{flex:1;border:0;clip-path:none;background:none;color:var(--muted);padding:8px 0 10px;font-size:13px;display:flex;flex-direction:column;align-items:center;gap:2px;position:relative}
+.tabs button span{font-size:20px}
+.tabs button.on{color:var(--accent);text-shadow:0 0 8px rgba(0,234,255,.6)}
+.tabs i{position:absolute;top:4px;right:calc(50% - 22px);background:var(--bad);color:#fff;font-style:normal;font-size:11px;border-radius:9px;padding:0 6px}
+#sheet{position:fixed;inset:0;background:var(--bg);overflow:auto;z-index:60;padding:max(14px,env(safe-area-inset-top)) 16px 40px}
+.chips{display:flex;gap:6px;overflow-x:auto;margin:4px 0 8px;padding-bottom:2px}
+.chips button{width:auto;flex:none;padding:6px 12px;font-size:14px;border-color:var(--line);color:var(--muted)}
+.chips button.on{border-color:var(--accent);color:var(--accent)}
+.kpis{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.kpi{background:var(--panel);border:1px solid var(--line);padding:12px}
+.kpi .l{font-size:12.5px;color:var(--muted)} .kpi .v{font-family:var(--disp);font-size:22px;color:var(--accent);margin-top:2px} .kpi .s{font-size:12.5px;color:var(--muted)}
+.kpi.act{border-color:var(--warn)} .kpi.act .v{color:var(--warn)} .kpi.bad{border-color:var(--bad)} .kpi.bad .v{color:var(--bad)}
+.bars{display:flex;align-items:flex-end;gap:6px;height:110px;margin-top:8px}
+.bars div{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;font-size:11px;color:var(--muted)}
+.bars b{display:block;width:100%;background:linear-gradient(var(--accent),rgba(0,234,255,.25));min-height:2px}
+.row2{display:grid;grid-template-columns:56px 1fr auto;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
+.row2 img{width:56px;height:56px;object-fit:contain;background:#fff}
+.row2 .n{font-size:15px;line-height:1.25} .row2 .m{font-size:12.5px;color:var(--muted)} .row2 .r{text-align:right;font-size:13px}
+</style>
+</head>
+<body>
+<h1>四驱店铺</h1>
+<div class="sub">MINI4WD // SHOP OS · MOBILE</div>
+
+<div id="login" class="card" hidden>
+  <b>登录</b><p class="muted">用你在 Supabase 建的那个账号（邮箱 + 密码）。登录一次，以后打开就不用再登。</p>
+  <label class="muted" for="em">邮箱</label><input id="em" type="email" autocomplete="username">
+  <label class="muted" for="pw">密码</label><input id="pw" type="password" autocomplete="current-password">
+  <button class="pri" id="loginBtn">登录</button>
+  <div id="loginMsg"></div>
+</div>
+
+<div id="app" hidden>
+  <div class="row" style="justify-content:space-between;margin:-6px 0 6px"><span class="muted" id="upd">读取中…</span><button id="refBtn" style="width:auto;padding:6px 12px">↻ 刷新</button></div>
+  <section id="tHome"></section>
+  <section id="tProd" hidden>
+    <input id="pq" placeholder="搜 SKU / 中文名 / 日文名" type="search">
+    <div class="chips" id="pchips"></div><div id="plist"></div></section>
+  <section id="tOrd" hidden><div class="chips" id="ochips"></div><div id="olist"></div></section>
+  <section id="tScan" hidden>
+    <button class="pri big" id="scanBtn">📷 扫码</button>
+    <div id="reader" hidden></div>
+    <div class="row" style="margin-top:10px"><input id="manual" placeholder="扫不出来：手动输入 SKU" style="margin:0"><button id="goBtn" style="width:90px">查看</button></div>
+    <p class="muted">扫电脑屏幕上的二维码：<b>进货单</b> → 对着货逐个入库；<b>订单</b> → 打包核对、标记已发货；<b>商品</b> → 看库存。原来的条形码也能扫。</p>
+    <p class="muted" style="margin-top:30px"><a href="#" id="logout" style="color:var(--muted)">退出登录</a></p></section>
+  <nav class="tabs">
+    <button data-tab="tHome" class="on"><span>📊</span>概况</button><button data-tab="tProd"><span>📦</span>商品</button>
+    <button data-tab="tOrd"><span>🧾</span>订单<i id="obadge" hidden></i></button><button data-tab="tScan"><span>📷</span>扫码</button></nav>
+</div>
+<div id="sheet" hidden><button id="back" style="width:auto;padding:8px 14px;margin-bottom:8px">← 返回</button><div id="view"></div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script>
+const SUPABASE_URL = 'https://omiwwwfruwpgtivtzxna.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_TJb3F7opoaO3g_TikVYQjg_0JHan-lx';  // 公开用的钥匙；没登录什么都读不到
+const IMG = 'https://raw.githubusercontent.com/vermouther1986/images-store/main/images/';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const img = sku => IMG + encodeURIComponent(sku) + '.jpg';
+const msg = (cls, text) => `<div class="msg ${cls}">${text}</div>`;
+const name = s => esc(String(s || '').split(' / ').slice(0, 2).join(' / '));
+const t = s => s ? new Date(s).toLocaleString('ja-JP', {month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit'}) : '';
+function buzz() { try { navigator.vibrate && navigator.vibrate(80); } catch {} }
+
+async function boot() {
+  const {data} = await sb.auth.getSession();
+  $('#login').hidden = !!data.session; $('#app').hidden = !data.session;
+  if (data.session && !D) load();
+  // 用手机相机直接扫电脑上的码，会带着 #PB:12 这样的尾巴打开这个页面
+  if (data.session && location.hash.length > 1) {
+    const code = decodeURIComponent(location.hash.slice(1));
+    history.replaceState(null, '', location.pathname);
+    handle(code);
+  }
+}
+$('#loginBtn').onclick = async () => {
+  $('#loginBtn').disabled = true;
+  const {error} = await sb.auth.signInWithPassword({email: $('#em').value.trim(), password: $('#pw').value});
+  $('#loginBtn').disabled = false;
+  if (error) { $('#loginMsg').innerHTML = msg('bad', '登录失败：邮箱或密码不对'); return; }
+  boot();
+};
+$('#logout').onclick = async e => { e.preventDefault(); await sb.auth.signOut(); boot(); };
+
+// ───────── 扫码 ─────────
+let scanner = null;
+$('#scanBtn').onclick = async () => {
+  if (scanner) { await stopScan(); return; }
+  $('#reader').hidden = false; $('#scanBtn').textContent = '停止扫码';
+  scanner = new Html5Qrcode('reader', {formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE, Html5QrcodeSupportedFormats.CODE_128]});
+  try {
+    await scanner.start({facingMode: 'environment'}, {fps: 10, qrbox: {width: 260, height: 260}}, async text => { buzz(); await stopScan(); handle(text); });
+  } catch (e) { await stopScan(); $('#view').innerHTML = msg('bad', '打不开摄像头：请在浏览器里允许使用相机。也可以在下面手动输入 SKU。'); }
+};
+async function stopScan() {
+  if (scanner) { try { await scanner.stop(); } catch {} try { scanner.clear(); } catch {} }
+  scanner = null; $('#reader').hidden = true; $('#scanBtn').textContent = '📷 扫码';
+}
+$('#goBtn').onclick = () => handle($('#manual').value);
+
+function handle(text) {
+  openSheet();
+  text = String(text || '').trim();
+  const h = text.indexOf('#');  // 新二维码是网址：…/scan/#PB:12
+  if (/^https?:\/\//i.test(text) && h >= 0) text = decodeURIComponent(text.slice(h + 1));
+  if (text.startsWith('PB:')) return showBatch(text.slice(3));
+  if (text.startsWith('OR:')) return showOrder(text.slice(3));
+  if (/^[A-Z0-9]+-\d{6}$/i.test(text)) return showProduct(text.toUpperCase());
+  $('#view').innerHTML = msg('warn', `看不懂这个码：${esc(text)}<br>请扫店铺软件里显示的二维码，或商品的条形码。`);
+}
+async function q(p) { const {data, error} = await p; if (error) throw new Error(error.message); return data; }
+
+// ───────── 进货单：逐个入库 ─────────
+async function showBatch(id) {
+  $('#view').innerHTML = '<p class="muted">读取进货单…</p>';
+  try {
+    const b = await q(sb.from('purchase_batches').select('*, purchase_items(id, sku, qty, received_qty, products(cn_name, ja_name))').eq('id', id).single());
+    const items = b.purchase_items.sort((x, y) => x.sku.localeCompare(y.sku));
+    const left = items.filter(i => i.received_qty < i.qty).length;
+    $('#view').innerHTML = `<div class="card"><b>进货单 ${esc(b.batch_date)}</b> ${b.counted ? '' : '<span class="tag warn">盘点前（不计库存）</span>'}
+      <div class="muted">${esc(b.title)} · ${items.length} 种 · 还有 ${left} 种没入库</div>
+      ${items.map(i => `<div class="item"><img src="${img(i.sku)}" alt="">
+        <div><div>${name(i.products?.cn_name)}</div><div class="muted">${esc(i.sku)}</div>
+        <div>应到 <b>${i.qty}</b> · 已到 <b class="${i.received_qty >= i.qty ? 'ok' : 'warn'}">${i.received_qty}</b></div>
+        ${b.counted && i.received_qty < i.qty ? `<div class="row" style="margin-top:6px">这次到 <input class="qty" type="number" inputmode="numeric" min="1" max="${i.qty - i.received_qty}" value="${i.qty - i.received_qty}" id="n_${i.id}"> 件
+          <button class="pri" style="width:auto;padding:10px 14px" data-rcv="${i.id}" data-cur="${i.received_qty}" data-max="${i.qty}">✓ 入库</button></div>`
+          : (b.counted ? '<span class="tag ok">已入库</span>' : '')}</div></div>`).join('')}</div>`;
+    document.querySelectorAll('[data-rcv]').forEach(btn => btn.onclick = () => receive(btn, id));
+  } catch (e) { $('#view').innerHTML = msg('bad', '找不到这个进货单：' + esc(e.message)); }
+}
+async function receive(btn, batchId) {
+  const cur = Number(btn.dataset.cur), max = Number(btn.dataset.max), n = Number($('#n_' + btn.dataset.rcv).value);
+  if (!(n > 0) || cur + n > max) { alert(`这次最多入库 ${max - cur} 件`); return; }
+  btn.disabled = true;
+  // 只在「已到数量还是我看到的那个数」时才改：别的设备刚入过库，就不会重复加
+  const rows = await q(sb.from('purchase_items').update({received_qty: cur + n}).eq('id', btn.dataset.rcv).eq('received_qty', cur).select());
+  if (!rows.length) alert('这一行刚刚被别的设备改过，已重新读取，请再看一下');
+  buzz(); showBatch(batchId);
+}
+
+// ───────── 订单：打包核对、标记已发货 ─────────
+async function showOrder(id) {
+  $('#view').innerHTML = '<p class="muted">读取订单…</p>';
+  try {
+    const o = await q(sb.from('orders').select('*, order_lines(sku, qty, products(cn_name, ja_name))').eq('id', id).single());
+    const head = {'待发货': msg('warn', '待发货：对着下面的图核对商品和件数，没问题就点「标记已发货」。库存已经在收到邮件时扣过了，这里不会再扣。'),
+      '已发货': msg('ok', `已经发过货了（${t(o.shipped_at)}）。不用再处理，也不会重复扣库存。`),
+      '待确认': msg('bad', '这单还没确认是哪个商品，请先在电脑上的「出库 / 订单」里选商品。'),
+      '已撤销': msg('bad', '这单已经撤销（煤炉取消或记错），不要发货。')}[o.status] || '';
+    $('#view').innerHTML = `<div class="card"><b>${esc(o.mercari_item_id || '手动出库')}</b><div class="muted">${esc(o.title)}</div>${head}
+      ${o.order_lines.map(l => `<div class="item"><img src="${img(l.sku)}" alt=""><div><div>${name(l.products?.cn_name)}</div>
+        <div class="muted">${esc(l.sku)}</div><div class="num">× ${l.qty}</div></div></div>`).join('')}
+      ${o.status === '待发货' ? '<button class="pri big" id="shipBtn" style="margin-top:14px">✓ 核对无误，标记已发货</button>' : ''}</div>`;
+    if ($('#shipBtn')) $('#shipBtn').onclick = async () => {
+      $('#shipBtn').disabled = true;
+      await q(sb.from('orders').update({status: '已发货', shipped_at: new Date().toISOString()}).eq('id', id).eq('status', '待发货'));
+      buzz(); showOrder(id);
+    };
+  } catch (e) { $('#view').innerHTML = msg('bad', '找不到这张订单：' + esc(e.message)); }
+}
+
+// ───────── 商品：看库存 ─────────
+async function showProduct(sku) {
+  $('#view').innerHTML = '<p class="muted">读取商品…</p>';
+  try {
+    const [p, st, way, ship] = await Promise.all([
+      q(sb.from('products').select('*').eq('sku', sku).maybeSingle()),
+      q(sb.from('stock_now').select('stock').eq('sku', sku).maybeSingle()),
+      q(sb.from('purchase_items').select('qty, received_qty, batch_id, purchase_batches(batch_date, counted)').eq('sku', sku)),
+      q(sb.from('order_lines').select('qty, order_id, orders(status, title, mercari_item_id)').eq('sku', sku))]);
+    if (!p) { $('#view').innerHTML = msg('bad', '商品库里没有这个 SKU：' + esc(sku)); return; }
+    const onWay = way.filter(w => w.purchase_batches?.counted && w.received_qty < w.qty);
+    const toShip = ship.filter(s => s.orders?.status === '待发货');
+    $('#view').innerHTML = `<div class="card"><img class="big-img" src="${img(sku)}" alt="">
+      <div style="margin-top:8px;font-size:18px">${name(p.cn_name)}</div><div class="muted">${esc(p.ja_name)}</div><div class="muted">${esc(sku)}</div>
+      <div style="margin-top:8px">当前库存 <span class="num">${st ? st.stock : 0}</span> 件</div>
+      ${onWay.map(w => `<button style="margin-top:8px" data-pb="${w.batch_id}">在途：${esc(w.purchase_batches.batch_date)} 进货单，还差 ${w.qty - w.received_qty} 件 → 去入库</button>`).join('')}
+      ${toShip.map(s => `<button style="margin-top:8px" data-or="${s.order_id}">待发货：${esc(s.orders.mercari_item_id || '手动')} ×${s.qty} → 去核对</button>`).join('')}</div>`;
+    document.querySelectorAll('[data-pb]').forEach(b => b.onclick = () => showBatch(b.dataset.pb));
+    document.querySelectorAll('[data-or]').forEach(b => b.onclick = () => showOrder(b.dataset.or));
+  } catch (e) { $('#view').innerHTML = msg('bad', esc(e.message)); }
+}
+// ═════════ 手机看店：概况 / 商品 / 订单（每 60 秒自动刷新）═════════
+let D = null, PF = '全部', OF = '需要处理', loading = false;
+const yen = v => v == null || v === '' ? '—' : '¥' + Math.round(v).toLocaleString('ja-JP');
+const STAG = {'待确认': 'bad', '待发货': 'warn', '已发货': 'ok', '已撤销': ''};
+function openSheet() { $('#sheet').hidden = false; $('#sheet').scrollTop = 0; }
+$('#back').onclick = () => { $('#sheet').hidden = true; load(); };
+// 详情（入库、发货）都在弹出页里打开
+const _sb = showBatch, _so = showOrder, _sp = showProduct;
+showBatch = id => { openSheet(); return _sb(id); };
+showOrder = id => { openSheet(); return _so(id); };
+showProduct = sku => { openSheet(); return _sp(sku); };
+
+async function load() {
+  if (loading) return; loading = true;
+  try {
+    const [stock, lst, ords, items, sets] = await Promise.all([
+      q(sb.from('stock_now').select('*')),
+      q(sb.from('listings').select('listing_sku,status,price_jpy,title_manual,title_auto,mercari_item_id')),
+      q(sb.from('orders').select('id,mercari_item_id,title,price_jpy,sold_at,status,counted,source,shipped_at,order_lines(sku,qty)').order('sold_at', {ascending: false}).limit(400)),
+      q(sb.from('purchase_items').select('sku,qty,received_qty,purchase_batches(counted)')),
+      q(sb.from('settings').select('key,value').in('key', ['煤炉手续费', '运费(円)', '包装材料费(円)', '汇率 人民币→日元']))]);
+    const S = Object.fromEntries(sets.map(r => [r.key, r.value]));
+    const pct = v => { const s = String(v ?? ''); return s.endsWith('%') ? parseFloat(s) / 100 : parseFloat(s); };
+    const way = {};
+    items.forEach(i => { if (i.purchase_batches?.counted !== false) way[i.sku] = (way[i.sku] || 0) + i.qty - i.received_qty; });
+    const L = Object.fromEntries(lst.map(l => [l.listing_sku, l]));
+    D = {stock, L, ords, way, fee: pct(S['煤炉手续费']) || .1, ship: (+S['运费(円)'] || 160) + (+S['包装材料费(円)'] || 20), rate: +S['汇率 人民币→日元'] || 24,
+         P: Object.fromEntries(stock.map(p => [p.sku, p])), at: new Date()};
+    $('#upd').textContent = '更新于 ' + D.at.toLocaleTimeString('ja-JP', {hour: '2-digit', minute: '2-digit', second: '2-digit'}) + ' · 每分钟自动刷新';
+    const need = ords.filter(o => o.counted && (o.status === '待确认' || o.status === '待发货')).length;
+    $('#obadge').hidden = !need; $('#obadge').textContent = need;
+    drawHome(); drawProd(); drawOrd();
+  } catch (e) {
+    $('#upd').innerHTML = `<span class="bad">读取失败：${esc(e.message)}</span>`;
+  } finally { loading = false; }
+}
+window.renderWith = d => { D = d; drawHome(); drawProd(); drawOrd(); };  // 测试用
+
+const valid = o => o.status !== '已撤销' && o.status !== '待确认';
+const dayKey = d => { const x = new Date(d); return `${x.getFullYear()}-${x.getMonth() + 1}-${x.getDate()}`; };
+function profitOf(o) {
+  const cost = (o.order_lines || []).reduce((a, l) => a + (D.P[l.sku]?.unit_price_rmb || 0) * 1.06 * D.rate * l.qty, 0);
+  return (o.price_jpy || 0) * (1 - D.fee) - D.ship - cost;
+}
+const full = s => esc(String(s || '').replace(/\s*\/\s*/g, ' / '));  // 完整中文名（同款不同规格要能分开）
+const pname = sku => full(D.P[sku]?.cn_name || sku);
+
+function drawHome() {
+  const now = new Date(), today = dayKey(now), mon = `${now.getFullYear()}-${now.getMonth()}`;
+  const ok = D.ords.filter(valid);
+  const sum = list => ({n: list.length, rev: list.reduce((a, o) => a + (o.price_jpy || 0), 0), pf: list.reduce((a, o) => a + profitOf(o), 0)});
+  const tD = sum(ok.filter(o => dayKey(o.sold_at) === today));
+  const tM = sum(ok.filter(o => { const d = new Date(o.sold_at); return `${d.getFullYear()}-${d.getMonth()}` === mon; }));
+  const c1 = D.ords.filter(o => o.counted && o.status === '待确认').length, c2 = D.ords.filter(o => o.counted && o.status === '待发货').length;
+  const days = [...Array(7)].map((_, i) => { const d = new Date(now); d.setDate(d.getDate() - 6 + i); return d; });
+  const per = days.map(d => ok.filter(o => dayKey(o.sold_at) === dayKey(d)).reduce((a, o) => a + (o.price_jpy || 0), 0));
+  const mx = Math.max(1, ...per);
+  const listed = s => (D.L[s]?.status === '已上架');
+  const out = D.stock.filter(p => p.stock <= 0 && (listed(p.sku) || (D.way[p.sku] || 0) === 0)).slice(0, 12);
+  const low = D.stock.filter(p => p.alert_level > 0 && p.stock > 0 && p.stock <= p.alert_level);
+  const top = {}; ok.filter(o => { const d = new Date(o.sold_at); return `${d.getFullYear()}-${d.getMonth()}` === mon; })
+    .forEach(o => o.order_lines.forEach(l => top[l.sku] = (top[l.sku] || 0) + l.qty));
+  const tops = Object.entries(top).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const totalStock = D.stock.reduce((a, p) => a + Math.max(0, p.stock), 0);
+  $('#tHome').innerHTML = `
+    <div class="kpis">
+      <div class="kpi"><div class="l">今天卖出</div><div class="v">${tD.n} 单</div><div class="s">${yen(tD.rev)} · 利润约 ${yen(tD.pf)}</div></div>
+      <div class="kpi"><div class="l">本月卖出</div><div class="v">${tM.n} 单</div><div class="s">${yen(tM.rev)} · 利润约 ${yen(tM.pf)}</div></div>
+      <div class="kpi ${c2 ? 'act' : ''}" data-go="待发货"><div class="l">待发货</div><div class="v">${c2}</div><div class="s">${c2 ? '点这里看 →' : '都发完了 ✓'}</div></div>
+      <div class="kpi ${c1 ? 'bad' : ''}" data-go="待确认"><div class="l">待确认（认不出的商品）</div><div class="v">${c1}</div><div class="s">${c1 ? '在电脑「出库」里选商品' : '没有 ✓'}</div></div>
+    </div>
+    <div class="card"><b>最近 7 天销售额</b>${per.some(v => v) ? '' : '<span class="muted">　这 7 天还没有卖出</span>'}
+      <div class="bars">${per.map((v, i) => `<div><span style="font-size:10.5px;color:var(--fg)">${v ? Math.round(v / 100) / 10 + 'k' : ''}</span><b style="height:${Math.round(v / mx * 80)}%"></b>${days[i].getMonth() + 1}/${days[i].getDate()}</div>`).join('')}</div></div>
+    <div class="card"><b>库存</b> <span class="muted">${D.stock.length} 种 · 共 ${totalStock} 件 · 在途 ${Object.values(D.way).reduce((a, b) => a + Math.max(0, b), 0)} 件</span>
+      ${out.length ? `<div style="margin-top:8px" class="bad">缺货 ${out.length} 种：</div>${out.map(p => `<div class="muted" data-sku="${esc(p.sku)}" style="padding:3px 0">・${full(p.cn_name)}${D.way[p.sku] ? `（在途 ${D.way[p.sku]}）` : ''}</div>`).join('')}` : '<div class="ok" style="margin-top:6px">没有缺货 ✓</div>'}
+      ${low.length ? `<div style="margin-top:8px" class="warn">低库存：</div>${low.map(p => `<div class="muted" data-sku="${esc(p.sku)}" style="padding:3px 0">・${full(p.cn_name)}　剩 ${p.stock}</div>`).join('')}` : ''}</div>
+    <div class="card"><b>本月卖得最多</b>${tops.length ? tops.map(([s, n], i) => `<div class="row" data-sku="${esc(s)}" style="padding:5px 0;justify-content:space-between"><span>${i + 1}. ${pname(s)}</span><b>${n} 件</b></div>`).join('') : '<div class="muted">本月还没卖出</div>'}</div>
+    <p class="muted" style="font-size:12.5px">利润是估算：成交价 − 手续费${Math.round(D.fee * 100)}% − 运费包装${D.ship}円 − 进价。</p>`;
+  document.querySelectorAll('#tHome [data-go]').forEach(e => e.onclick = () => { OF = e.dataset.go; drawOrd(); tab('tOrd'); });
+  document.querySelectorAll('#tHome [data-sku]').forEach(e => e.onclick = () => showProduct(e.dataset.sku));
+}
+
+function drawProd() {
+  const k = ($('#pq').value || '').trim().toLowerCase();
+  const F = {'全部': () => true, '有货': p => p.stock > 0, '缺货': p => p.stock <= 0, '在途': p => (D.way[p.sku] || 0) > 0,
+             '已上架': p => D.L[p.sku]?.status === '已上架', '待上架': p => D.L[p.sku]?.status === '待上架'};
+  $('#pchips').innerHTML = Object.keys(F).map(f => `<button class="${f === PF ? 'on' : ''}" data-pf="${f}">${f} ${D.stock.filter(F[f]).length}</button>`).join('');
+  const list = D.stock.filter(F[PF]).filter(p => !k || `${p.sku} ${p.cn_name} ${p.ja_name}`.toLowerCase().includes(k))
+    .sort((a, b) => a.sku.localeCompare(b.sku));
+  $('#plist').innerHTML = list.map(p => { const l = D.L[p.sku] || {}; return `<div class="row2" data-sku="${esc(p.sku)}"><img loading="lazy" src="${img(p.sku)}" alt="">
+    <div><div class="n">${full(p.cn_name)}</div><div class="m">${esc(p.sku)}${l.status ? ' · ' + esc(l.status) : ''}</div></div>
+    <div class="r"><div class="num" style="font-size:20px;color:${p.stock <= 0 ? 'var(--bad)' : 'var(--accent)'}">${p.stock}</div><div class="m">${D.way[p.sku] ? '在途 ' + D.way[p.sku] : '件'}</div><div>${l.price_jpy ? yen(l.price_jpy) : ''}</div></div></div>`; }).join('')
+    || '<p class="muted">没有符合的商品</p>';
+  document.querySelectorAll('[data-pf]').forEach(b => b.onclick = () => { PF = b.dataset.pf; drawProd(); });
+  document.querySelectorAll('#plist [data-sku]').forEach(e => e.onclick = () => showProduct(e.dataset.sku));
+}
+$('#pq').oninput = () => D && drawProd();
+
+function drawOrd() {
+  const F = {'需要处理': o => o.counted && (o.status === '待确认' || o.status === '待发货'), '待发货': o => o.status === '待发货', '待确认': o => o.status === '待确认',
+             '已发货': o => o.status === '已发货', '全部': () => true};
+  $('#ochips').innerHTML = Object.keys(F).map(f => `<button class="${f === OF ? 'on' : ''}" data-of="${f}">${f} ${D.ords.filter(F[f]).length}</button>`).join('');
+  const list = D.ords.filter(F[OF]).slice(0, 150);
+  $('#olist').innerHTML = list.map(o => `<div class="row2" data-or="${o.id}" style="grid-template-columns:56px 1fr auto">
+    <img loading="lazy" src="${o.order_lines[0] ? img(o.order_lines[0].sku) : ''}" alt="">
+    <div><div class="n">${o.order_lines.map(l => pname(l.sku) + (l.qty > 1 ? ` ×${l.qty}` : '')).join('、') || esc(o.title)}</div>
+      <div class="m">${t(o.sold_at)} · ${esc(o.mercari_item_id || o.source)}</div></div>
+    <div class="r"><span class="tag ${STAG[o.status] || ''}">${esc(o.status)}</span><div style="margin-top:4px">${yen(o.price_jpy)}</div>${o.counted ? '' : '<div class="m">盘点前</div>'}</div></div>`).join('')
+    || `<p class="muted">${OF === '需要处理' ? '没有要处理的订单 ✓' : '没有订单'}</p>`;
+  document.querySelectorAll('[data-of]').forEach(b => b.onclick = () => { OF = b.dataset.of; drawOrd(); });
+  document.querySelectorAll('#olist [data-or]').forEach(e => e.onclick = () => showOrder(e.dataset.or));
+}
+
+function tab(id) {
+  document.querySelectorAll('#app > section').forEach(s => s.hidden = s.id !== id);
+  document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === id));
+  window.scrollTo(0, 0);
+}
+document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => { tab(b.dataset.tab); if (b.dataset.tab !== 'tScan') stopScan(); });
+$('#refBtn').onclick = load;
+setInterval(() => { if (!document.hidden && !$('#app').hidden && $('#sheet').hidden) load(); }, 60000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden && !$('#app').hidden) load(); });
+
+window.addEventListener('hashchange', boot);
+boot();
+</script>
+</body>
+</html>
