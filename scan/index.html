@@ -245,14 +245,14 @@ async function load() {
       q(sb.from('listings').select('listing_sku,status,price_jpy,title_manual,title_auto,description,mercari_item_id,fields,updated_at')),
       q(sb.from('orders').select('id,mercari_item_id,title,price_jpy,sold_at,status,counted,source,shipped_at,order_lines(sku,qty)').order('sold_at', {ascending: false}).limit(400)),
       q(sb.from('purchase_items').select('sku,qty,received_qty,purchase_batches(counted)')),
-      q(sb.from('settings').select('key,value').in('key', ['煤炉手续费', '运费(円)', '包装材料费(円)', '汇率 人民币→日元']))]);
+      q(sb.from('settings').select('key,value').in('key', ['煤炉手续费', '运费(円)', '包装材料费(円)', '汇率 人民币→日元', '邮件同步最后时间']))]);
     const S = Object.fromEntries(sets.map(r => [r.key, r.value]));
     const pct = v => { const s = String(v ?? ''); return s.endsWith('%') ? parseFloat(s) / 100 : parseFloat(s); };
     const way = {};
     items.forEach(i => { if (i.purchase_batches?.counted !== false) way[i.sku] = (way[i.sku] || 0) + i.qty - i.received_qty; });
     const L = Object.fromEntries(lst.map(l => [l.listing_sku, l]));
     D = {stock, L, ords, way, fee: pct(S['煤炉手续费']) || .1, ship: (+S['运费(円)'] || 160) + (+S['包装材料费(円)'] || 20), rate: +S['汇率 人民币→日元'] || 24,
-         P: Object.fromEntries(stock.map(p => [p.sku, p])), at: new Date()};
+         P: Object.fromEntries(stock.map(p => [p.sku, p])), at: new Date(), mail: S['邮件同步最后时间'] || ''};
     $('#upd').textContent = '更新于 ' + D.at.toLocaleTimeString('ja-JP', {hour: '2-digit', minute: '2-digit', second: '2-digit'}) + ' · 每分钟自动刷新';
     const need = ords.filter(o => o.counted && (o.status === '待确认' || o.status === '待发货')).length;
     $('#obadge').hidden = !need; $('#obadge').textContent = need;
@@ -388,6 +388,7 @@ function drawHome() {
       ${out.length ? `<div style="margin-top:8px" class="bad">缺货 ${out.length} 种：</div>${out.map(p => `<div class="muted" data-sku="${esc(p.sku)}" style="padding:3px 0">・${full(p.cn_name)}${D.way[p.sku] ? `（在途 ${D.way[p.sku]}）` : ''}</div>`).join('')}` : '<div class="ok" style="margin-top:6px">没有缺货 ✓</div>'}
       ${low.length ? `<div style="margin-top:8px" class="warn">低库存：</div>${low.map(p => `<div class="muted" data-sku="${esc(p.sku)}" style="padding:3px 0">・${full(p.cn_name)}　剩 ${p.stock}</div>`).join('')}` : ''}</div>
     <div class="card"><b>本月卖得最多</b>${tops.length ? tops.map(([s, n], i) => `<div class="row" data-sku="${esc(s)}" style="padding:5px 0;justify-content:space-between"><span>${i + 1}. ${pname(s)}</span><b>${n} 件</b></div>`).join('') : '<div class="muted">本月还没卖出</div>'}</div>
+    <p class="muted" style="font-size:12.5px">📧 煤炉邮件最后同步：${D.mail ? esc(D.mail) + '（每 5 分钟一次，电脑关着也照跑）' : '还没开启即时同步'}</p>
     <p class="muted" style="font-size:12.5px">利润是估算：成交价 − 手续费${Math.round(D.fee * 100)}% − 运费包装${D.ship}円 − 进价。</p>`;
   document.querySelectorAll('#tHome [data-go]').forEach(e => e.onclick = () => { OF = e.dataset.go; drawOrd(); tab('tOrd'); });
   document.querySelectorAll('#tHome [data-sku]').forEach(e => e.onclick = () => showProduct(e.dataset.sku));
@@ -435,7 +436,7 @@ setInterval(() => { if (!document.hidden && !$('#app').hidden && $('#sheet').hid
 document.addEventListener('visibilitychange', () => { if (!document.hidden && !$('#app').hidden) load(); });
 
 // 自动更新：手机会把网页存一份旧的；打开时去网上看有没有新版本，有就马上换成新的
-const VERSION = '2026-11-18b';
+const VERSION = '2026-11-19a';
 $('#ver').textContent = '版本 ' + VERSION;
 (async () => {
   try {
