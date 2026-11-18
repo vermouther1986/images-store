@@ -190,18 +190,47 @@ async function showOrder(id) {
     const o = await q(sb.from('orders').select('*, order_lines(sku, qty, products(cn_name, ja_name))').eq('id', id).single());
     const head = {'待发货': msg('warn', '待发货：对着下面的图核对商品和件数，没问题就点「标记已发货」。库存已经在收到邮件时扣过了，这里不会再扣。'),
       '已发货': msg('ok', `已经发过货了（${t(o.shipped_at)}）。不用再处理，也不会重复扣库存。`),
-      '待确认': msg('bad', '这单还没确认是哪个商品，请先在电脑上的「出库 / 订单」里选商品。'),
+      '待确认': quickPick(o) || msg('bad', '这单认不出是哪个商品（买家合购、或者第一次卖的标题），请在电脑上的「出库 / 订单」里选商品。'),
       '已撤销': msg('bad', '这单已经撤销（煤炉取消或记错），不要发货。')}[o.status] || '';
     $('#view').innerHTML = `<div class="card"><b>${esc(o.mercari_item_id || '手动出库')}</b><div class="muted">${esc(o.title)}</div>${head}
       ${o.order_lines.map(l => `<div class="item"><img src="${img(l.sku)}" alt=""><div><div>${name(l.products?.cn_name)}</div>
         <div class="muted">${esc(l.sku)}</div><div class="num">× ${l.qty}</div></div></div>`).join('')}
       ${o.status === '待发货' ? '<button class="pri big" id="shipBtn" style="margin-top:14px">✓ 核对无误，标记已发货</button>' : ''}</div>`;
+    document.querySelectorAll('[data-pick]').forEach(b => b.onclick = async () => {
+      const lines = JSON.parse(b.dataset.pick);
+      if (!confirm('确认是：\n' + lines.map(l => `${l.sku} ×${l.qty}`).join('\n') + '\n\n确认后扣库存。')) return;
+      b.disabled = true;
+      try {
+        const cur = await q(sb.from('orders').select('status,order_lines(sku)').eq('id', id).single());
+        if (cur.status !== '待确认' || cur.order_lines.length) { alert('这单已经处理过了'); showOrder(id); return; }
+        await q(sb.from('order_lines').insert(lines.map(l => ({order_id: id, sku: l.sku, qty: l.qty}))));
+        await q(sb.from('orders').update({status: '待发货', note: '在手机上选好商品'}).eq('id', id).eq('status', '待确认'));
+        buzz(); showOrder(id);
+      } catch (e) { alert('没确认成功：' + e.message); b.disabled = false; }
+    });
     if ($('#shipBtn')) $('#shipBtn').onclick = async () => {
       $('#shipBtn').disabled = true;
       await q(sb.from('orders').update({status: '已发货', shipped_at: new Date().toISOString()}).eq('id', id).eq('status', '待发货'));
       buzz(); showOrder(id);
     };
   } catch (e) { $('#view').innerHTML = msg('bad', '找不到这张订单：' + esc(e.message)); }
+}
+
+// 待确认：以前同样标题卖过的商品 → 一键选（和电脑一样）
+const tnorm = t => String(t || '').replace(/（(自动|人工)[^）]*）\s*$/, '').normalize('NFKC').replace(/\s+/g, '').toLowerCase();
+function quickPick(o) {
+  if (!D || (o.order_lines || []).length) return '';
+  const seen = {};
+  D.ords.filter(x => x.id !== o.id && x.status !== '已撤销' && (x.order_lines || []).length && tnorm(x.title) === tnorm(o.title)).forEach(x => {
+    const k = JSON.stringify(x.order_lines.map(l => ({sku: l.sku, qty: l.qty})).sort((a, b) => a.sku.localeCompare(b.sku)));
+    seen[k] = (seen[k] || 0) + 1;
+  });
+  const opts = Object.entries(seen).sort((a, b) => b[1] - a[1]);
+  if (!opts.length) return '';
+  return msg('warn', '这个标题以前卖过下面的商品，点一下就确认（会扣库存）：') + opts.map(([k, n]) => {
+    const ls = JSON.parse(k);
+    return `<button class="pri" style="margin:6px 0;text-align:left" data-pick='${esc(k)}'>✓ ${ls.map(l => full(D.P[l.sku]?.cn_name || l.sku) + ' ×' + l.qty).join(' + ')}<div style="font-size:12px;font-weight:400">（以前卖过 ${n} 次）</div></button>`;
+  }).join('') + '<p class="muted" style="font-size:12.5px">都不是的话，请在电脑上选。</p>';
 }
 
 // ───────── 商品：看库存 ─────────
@@ -436,7 +465,7 @@ setInterval(() => { if (!document.hidden && !$('#app').hidden && $('#sheet').hid
 document.addEventListener('visibilitychange', () => { if (!document.hidden && !$('#app').hidden) load(); });
 
 // 自动更新：手机会把网页存一份旧的；打开时去网上看有没有新版本，有就马上换成新的
-const VERSION = '2026-11-19a';
+const VERSION = '2026-11-19b';
 $('#ver').textContent = '版本 ' + VERSION;
 (async () => {
   try {
