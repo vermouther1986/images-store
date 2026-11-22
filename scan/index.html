@@ -269,19 +269,21 @@ showProduct = sku => { openSheet(); return _sp(sku); };
 async function load() {
   if (loading) return; loading = true;
   try {
-    const [stock, lst, ords, items, sets] = await Promise.all([
+    const [stock, lst, ords, items, sets, trends] = await Promise.all([
       q(sb.from('stock_now').select('*')),
-      q(sb.from('listings').select('listing_sku,status,price_jpy,title_manual,title_auto,description,mercari_item_id,fields,updated_at')),
+      q(sb.from('listings').select('listing_sku,status,price_jpy,title_manual,title_auto,description,mercari_item_id,fields,updated_at,last_sold_mid,last_sold_at')),
       q(sb.from('orders').select('id,mercari_item_id,title,price_jpy,sold_at,status,counted,source,shipped_at,order_lines(sku,qty)').order('sold_at', {ascending: false}).limit(400)),
       q(sb.from('purchase_items').select('sku,qty,received_qty,purchase_batches(counted)')),
-      q(sb.from('settings').select('key,value').in('key', ['煤炉手续费', '运费(円)', '包装材料费(円)', '汇率 人民币→日元', '邮件同步最后时间']))]);
+      q(sb.from('settings').select('key,value').in('key', ['煤炉手续费', '运费(円)', '包装材料费(円)', '汇率 人民币→日元', '邮件同步最后时间', '电脑在线'])),
+      q(sb.from('settings').select('key,value').like('key', '趋势周报:%').order('key', {ascending: false}).limit(1))]);
     const S = Object.fromEntries(sets.map(r => [r.key, r.value]));
     const pct = v => { const s = String(v ?? ''); return s.endsWith('%') ? parseFloat(s) / 100 : parseFloat(s); };
     const way = {};
     items.forEach(i => { if (i.purchase_batches?.counted !== false) way[i.sku] = (way[i.sku] || 0) + i.qty - i.received_qty; });
     const L = Object.fromEntries(lst.map(l => [l.listing_sku, l]));
     D = {stock, L, ords, way, fee: pct(S['煤炉手续费']) || .1, ship: (+S['运费(円)'] || 160) + (+S['包装材料费(円)'] || 20), rate: +S['汇率 人民币→日元'] || 24,
-         P: Object.fromEntries(stock.map(p => [p.sku, p])), at: new Date(), mail: S['邮件同步最后时间'] || ''};
+         P: Object.fromEntries(stock.map(p => [p.sku, p])), at: new Date(), mail: S['邮件同步最后时间'] || '', pc: S['电脑在线'] || ''};
+    try { D.trend = trends[0] ? JSON.parse(trends[0].value) : null; } catch { D.trend = null; }
     $('#upd').textContent = '更新于 ' + D.at.toLocaleTimeString('ja-JP', {hour: '2-digit', minute: '2-digit', second: '2-digit'}) + ' · 每分钟自动刷新';
     const need = ords.filter(o => o.counted && (o.status === '待确认' || o.status === '待发货')).length;
     $('#obadge').hidden = !need; $('#obadge').textContent = need;
@@ -313,6 +315,10 @@ function lCost(l) {  // 和电脑上的公式一样：成本 = 单价RMB × 汇�
   return rmb == null ? null : Math.round(rmb * D.rate * Math.max(1, fnum(f.qty) || 1));
 }
 const lTitle = l => l.title_manual || l.title_auto || '';
+// 卖出后数据库自动改回「待上架」、清掉旧链接 → 提醒重新上架
+const lSold = l => l.status === '待上架' && l.last_sold_at && !l.mercari_item_id;
+const md = s => { const d = new Date(s); return `${d.getMonth() + 1}/${d.getDate()}`; };
+const pcOn = () => D.pc && Date.now() - new Date(D.pc) < 3 * 60000;  // 电脑上的店铺软件 3 分钟内有心跳
 const lName = l => full(F_(l).cn || D.P[l.listing_sku]?.cn_name || l.listing_sku);
 const lImg = l => img(partsOf(l.listing_sku)[0].b);
 function lProfit(l, price) {
@@ -329,7 +335,8 @@ function drawList() {
   $('#llist').innerHTML = list.map(l => { const pf = lProfit(l, l.price_jpy); const combo = /[+*]/.test(l.listing_sku); return `<div class="row2" data-ls="${esc(l.listing_sku)}">
     <img loading="lazy" src="${lImg(l)}" alt="">
     <div><div class="n">${lName(l)}${combo ? ` <span class="tag">${l.listing_sku.includes('+') ? '组合' : '×' + partsOf(l.listing_sku)[0].n}</span>` : ''}</div>
-      <div class="m">${esc(l.listing_sku)}${l.mercari_item_id ? ' · ' + esc(l.mercari_item_id) : ''}</div></div>
+      <div class="m">${esc(l.listing_sku)}${l.mercari_item_id ? ' · ' + esc(l.mercari_item_id) : ''}</div>
+      ${lSold(l) ? `<div class="warn" style="font-size:12.5px">🛒 ${md(l.last_sold_at)} 卖出 · 要重新上架</div>` : ''}</div>
     <div class="r"><div style="font-size:16px;font-weight:700">${yen(l.price_jpy)}</div>${pf ? `<div class="${pf.p < 0 ? 'bad' : pf.m < .35 ? 'warn' : 'ok'}">赚 ${yen(pf.p)}</div>` : ''}</div></div>`; }).join('')
     || '<p class="muted">没有符合的上新商品</p>';
   document.querySelectorAll('[data-lf]').forEach(b => b.onclick = () => { LF = b.dataset.lf; drawList(); });
@@ -349,6 +356,15 @@ function showListing(sku) {
       <div style="margin-top:8px;font-size:18px">${lName(l)}</div><div class="muted">${esc(sku)} · 可卖 ${stock} ${/[+*]/.test(sku) ? '套' : '件'}</div>
       <div class="row" style="margin-top:8px;justify-content:space-between"><span class="tag ${l.status === '已上架' ? 'ok' : 'warn'}">${esc(l.status)}</span>
         <span><span class="num">${yen(l.price_jpy)}</span>${pf ? `　<span class="${pf.m < .35 ? 'warn' : 'ok'}">赚 ${yen(pf.p)}（${(pf.m * 100).toFixed(0)}%）</span>` : ''}</span></div></div>
+    ${lSold(l) ? msg('warn', `🛒 <b>${t(l.last_sold_at)} 卖出了</b>（旧链接 <a href="https://jp.mercari.com/item/${esc(l.last_sold_mid)}" target="_blank" rel="noopener" style="color:inherit">${esc(l.last_sold_mid)}</a>），已自动改回「待上架」。<br>
+      ${stock > 0 ? `还有 ${stock} ${/[+*]/.test(sku) ? '套' : '件'}：在煤炉 App「再出品」，复制新商品的链接，贴到下面。` : '库存 0：补货后再上架。'}`) : ''}
+    <div class="card"><b>📋 煤炉商品链接</b> <span class="muted" style="font-size:13px">贴上后自动变「已上架」</span>
+      <input id="midIn" value="${esc(l.mercari_item_id || '')}" placeholder="在煤炉 App 点「共有」→ 复制链接，贴到这里" style="margin:8px 0 6px">
+      <button class="pri" id="midSave">保存链接</button><div id="midMsg"></div></div>
+    <div class="card"><b>💬 买家留言 → AI 写日语回复</b>
+      <div class="muted" style="font-size:13px;margin:4px 0">把买家的留言或讲价贴进来，AI 按这个商品的保本价、保底价写回复。由电脑上的店铺软件代跑：${pcOn() ? '<span class="ok">电脑在线 ✓</span>' : '<span class="bad">电脑现在没开（开了以后 1 小时内发的会自动处理）</span>'}</div>
+      <textarea id="aiMsg" rows="3" placeholder="例：800円にお値下げ可能でしょうか？" style="width:100%;font:inherit;font-size:16px;background:#070B16;color:var(--fg);border:1px solid var(--line);padding:10px;margin:4px 0 8px"></textarea>
+      <button class="pri" id="aiGo">💬 生成回复（约 30 秒）</button><div id="aiOut"></div></div>
     <div class="card"><b>讲价试算</b> <span class="muted" style="font-size:13px">输入对方出的价</span>
       <div class="row" style="margin-top:8px"><input id="tryP" type="number" inputmode="numeric" value="${l.price_jpy || ''}" style="margin:0;font-size:22px;font-weight:700"><span>円</span></div>
       <div class="row" style="margin-top:8px;flex-wrap:wrap">${[-100, -50, -10, 10, 50].map(d => `<button data-d="${d}" style="width:auto;flex:1;padding:8px 0">${d > 0 ? '+' : ''}${d}</button>`).join('')}</div>
@@ -358,6 +374,7 @@ function showListing(sku) {
     <div class="card"><div class="row" style="justify-content:space-between"><b>商品说明</b><button id="cpD" style="width:auto;padding:6px 12px">复制说明</button></div>
       <div style="margin-top:6px;white-space:pre-wrap;font-size:14px;user-select:text;max-height:260px;overflow:auto">${esc(l.description || '')}</div></div>
     ${l.mercari_item_id ? `<a href="https://jp.mercari.com/item/${esc(l.mercari_item_id)}" target="_blank" rel="noopener"><button>在煤炉打开这个商品 ↗</button></a>` : ''}
+    <!-- 链接框和 AI 回复在上面 -->
     <div class="card"><b>上架状态</b><div class="row" style="margin-top:8px">${['待上架', '已上架', '停售'].map(s => `<button data-st="${s}" class="${s === l.status ? 'pri' : ''}" style="flex:1">${s}</button>`).join('')}</div>
       <p class="muted" style="font-size:12.5px">改价格、标题、出图请在电脑上改。</p></div>`;
   const tryDraw = () => {
@@ -368,6 +385,39 @@ function showListing(sku) {
   $('#tryP').oninput = tryDraw;
   document.querySelectorAll('[data-d]').forEach(b => b.onclick = () => { $('#tryP').value = Math.max(0, (+$('#tryP').value || 0) + +b.dataset.d); tryDraw(); });
   tryDraw();
+  $('#midSave').onclick = async () => {
+    const m = ($('#midIn').value.match(/m\d{8,}/) || [])[0];
+    if (!m) { $('#midMsg').innerHTML = msg('bad', '没找到商品ID：链接里应该有 m 开头的一串数字'); return; }
+    try {
+      await q(sb.from('listings').update({mercari_item_id: m, status: '已上架', updated_at: new Date().toISOString()}).eq('listing_sku', sku));
+      l.mercari_item_id = m; l.status = '已上架'; buzz(); showListing(sku);
+    } catch (e) { $('#midMsg').innerHTML = msg('bad', /duplicate|unique/i.test(e.message) ? '这个链接已经填在别的商品上了' : '没保存：' + esc(e.message)); }
+  };
+  $('#aiGo').onclick = async () => {
+    const text = $('#aiMsg').value.trim();
+    if (!text) { $('#aiOut').innerHTML = msg('bad', '先把买家的留言贴进来'); return; }
+    $('#aiGo').disabled = true; $('#aiOut').innerHTML = msg('warn', pcOn() ? '已发给电脑，AI 正在写…' : '已排队：电脑没开，开机后会处理');
+    try {
+      const [r] = await q(sb.from('ai_requests').insert({kind: 'reply', listing_sku: sku, message: text.slice(0, 2000)}).select('id'));
+      for (let i = 0; i < 100; i++) {  // 最多等 5 分钟
+        await new Promise(res => setTimeout(res, 3000));
+        if (!$('#aiOut')) return;  // 离开了这个页面
+        const [x] = await q(sb.from('ai_requests').select('status,result,error').eq('id', r.id));
+        if (x.status === '处理中') $('#aiOut').innerHTML = msg('warn', 'AI 正在写…');
+        if (x.status === '失败') { $('#aiOut').innerHTML = msg('bad', '没写成：' + esc(x.error)); break; }
+        if (x.status === '完成') {
+          const R = x.result;
+          $('#aiOut').innerHTML = `<div style="margin-top:10px"><span class="tag ${R.decision === '接受' ? 'ok' : R.decision === '婉拒' ? 'bad' : 'warn'}">${esc(R.decision)}</span>${R.offer_price ? ` <b>${yen(R.offer_price)}</b>` : ''}
+            <div style="white-space:pre-wrap;margin:8px 0;padding:10px;border:1px solid var(--accent);user-select:text">${esc(R.reply_ja)}</div>
+            <button class="pri" id="aiCp">复制日语回复</button>
+            <div class="muted" style="margin-top:8px;font-size:14px">意思：${esc(R.meaning_zh)}</div><div style="margin-top:4px;font-size:14px">💡 ${esc(R.note_zh)}</div></div>`;
+          $('#aiCp').onclick = () => copyText(R.reply_ja, '日语回复');
+          break;
+        }
+      }
+    } catch (e) { $('#aiOut').innerHTML = msg('bad', '没发出去：' + esc(e.message)); }
+    finally { if ($('#aiGo')) $('#aiGo').disabled = false; }
+  };
   $('#cpT').onclick = () => copyText(lTitle(l), '标题');
   $('#cpD').onclick = () => copyText(l.description || '', '商品说明');
   document.querySelectorAll('[data-st]').forEach(b => b.onclick = async () => {
@@ -411,6 +461,9 @@ function drawHome() {
       <div class="kpi ${c2 ? 'act' : ''}" data-go="待发货"><div class="l">待发货</div><div class="v">${c2}</div><div class="s">${c2 ? '点这里看 →' : '都发完了 ✓'}</div></div>
       <div class="kpi ${c1 ? 'bad' : ''}" data-go="待确认"><div class="l">待确认（认不出的商品）</div><div class="v">${c1}</div><div class="s">${c1 ? '在电脑「出库」里选商品' : '没有 ✓'}</div></div>
     </div>
+    ${D.trend ? `<div class="card" id="trCard"><div class="row" style="justify-content:space-between"><b>🔥 圈子趋势周报</b><span class="muted">${esc(D.trend.date)}</span></div>
+      <div style="font-size:14px;margin-top:6px;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden">${esc(D.trend.result.summary_zh)}</div>
+      <button style="margin-top:8px">看完整周报 →</button></div>` : ''}
     <div class="card"><b>最近 7 天销售额</b>${per.some(v => v) ? '' : '<span class="muted">　这 7 天还没有卖出</span>'}
       <div class="bars">${per.map((v, i) => `<div><span style="font-size:10.5px;color:var(--fg)">${v ? Math.round(v / 100) / 10 + 'k' : ''}</span><b style="height:${Math.round(v / mx * 80)}%"></b>${days[i].getMonth() + 1}/${days[i].getDate()}</div>`).join('')}</div></div>
     <div class="card"><b>库存</b> <span class="muted">${D.stock.length} 种 · 共 ${totalStock} 件 · 在途 ${Object.values(D.way).reduce((a, b) => a + Math.max(0, b), 0)} 件</span>
@@ -419,8 +472,32 @@ function drawHome() {
     <div class="card"><b>本月卖得最多</b>${tops.length ? tops.map(([s, n], i) => `<div class="row" data-sku="${esc(s)}" style="padding:5px 0;justify-content:space-between"><span>${i + 1}. ${pname(s)}</span><b>${n} 件</b></div>`).join('') : '<div class="muted">本月还没卖出</div>'}</div>
     <p class="muted" style="font-size:12.5px">📧 煤炉邮件最后同步：${D.mail ? esc(D.mail) + '（每 5 分钟一次，电脑关着也照跑）' : '还没开启即时同步'}</p>
     <p class="muted" style="font-size:12.5px">利润是估算：成交价 − 手续费${Math.round(D.fee * 100)}% − 运费包装${D.ship}円 − 进价。</p>`;
+  if ($('#trCard')) $('#trCard').onclick = showTrend;
   document.querySelectorAll('#tHome [data-go]').forEach(e => e.onclick = () => { OF = e.dataset.go; drawOrd(); tab('tOrd'); });
   document.querySelectorAll('#tHome [data-sku]').forEach(e => e.onclick = () => showProduct(e.dataset.sku));
+}
+
+// 🔥 趋势周报（电脑上每周出一期，同步到云端）
+function showTrend() {
+  openSheet();
+  const T = D.trend, R = T.result;
+  const pic = src => src ? `<img loading="lazy" src="${esc(src)}" alt="" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'">` : '<span></span>';
+  const it = (src, html) => `<div class="row2" style="grid-template-columns:56px 1fr">${pic(src)}<div style="font-size:14px">${html}</div></div>`;
+  const pr = p => `<span class="tag ${p === '高' ? 'ok' : p === '中' ? 'warn' : ''}">${esc(p)}</span>`;
+  const sec = (title, arr, f) => (arr || []).length ? `<div class="card"><b>${title}</b>${arr.map(f).join('')}</div>` : '';
+  const lk = u => `<a href="${esc(u)}" target="_blank" rel="noopener" style="color:var(--accent);font-size:12px;word-break:break-all">${esc(u.replace(/^https?:\/\/(www\.)?/, '').slice(0, 40))}</a>`;
+  $('#view').innerHTML = `<div class="card"><b>🔥 圈子趋势周报</b> <span class="muted">${esc(T.at || T.date)} · 查了 ${T.searches || 0} 次</span>
+      <div style="margin-top:8px;font-size:15px">${esc(R.summary_zh)}</div></div>
+    ${sec('🛒 选货建议', R.buy, b => it(b.img, `${pr(b.priority)} <b>${esc(b.item_zh)}</b>${b.supplier_item ? `<div class="muted">供应商有：${esc(b.supplier_item)}${b.supplier_price_rmb ? ` · ¥${b.supplier_price_rmb}` : ''}</div>` : '<div class="muted">价格单里没有</div>'}<div>${esc(b.reason_zh)}</div>`))}
+    ${sec('🔥 最近热门', R.hot_items, h => it(h.img, `${pr(h.heat)} <b>${esc(h.name_ja)}</b>（${esc(h.name_zh)}）<div>${esc(h.why_zh)}</div>${(h.sources || []).slice(0, 2).map(lk).join('<br>')}`))}
+    ${sec('🏷 新叫法', R.terms, x => `<div style="padding:6px 0;border-bottom:1px solid var(--line);font-size:14px"><b>${esc(x.term)}</b>：${esc(x.meaning_zh)}<div class="muted">${esc(x.advice_zh)}</div></div>`)}
+    ${sec('🛠 玩法', R.styles, x => `<div style="padding:6px 0;border-bottom:1px solid var(--line);font-size:14px"><b>${esc(x.name)}</b>：${esc(x.desc_zh)}${x.parts_zh ? `<div class="muted">要用到：${esc(x.parts_zh)}</div>` : ''}</div>`)}
+    ${sec('🎨 配色', R.colors, c => `<div style="padding:3px 0;font-size:14px">・${esc(c)}</div>`)}
+    ${sec('📢 田宫新品 / 比赛', R.tamiya, x => it(x.img, `<b>${esc(x.title)}</b> <span class="muted">${esc(x.date)}</span><div>${esc(x.impact_zh)}</div>`))}
+    ${sec('📈 你卖得好的', R.my_hot, x => it(img(x.sku.split(/[+*]/)[0]), `<span class="muted">${esc(x.sku)}</span> ${esc(x.comment_zh)}`))}
+    ${sec('📉 可能在过气', R.fading, x => it(img(x.sku.split(/[+*]/)[0]), `<span class="muted">${esc(x.sku)}</span> ${esc(x.reason_zh)}`))}
+    ${sec('✏ 标题可以加的词', R.title_fixes, x => it(img(x.sku.split(/[+*]/)[0]), `<span class="muted">${esc(x.sku)}</span> 加「<b>${esc(x.word)}</b>」：${esc(x.reason_zh)}`))}
+    <p class="muted" style="font-size:12.5px">报告是电脑上的店铺软件每周自动出的，只作参考；进货前点来源确认。</p>`;
 }
 
 function drawProd() {
@@ -465,7 +542,7 @@ setInterval(() => { if (!document.hidden && !$('#app').hidden && $('#sheet').hid
 document.addEventListener('visibilitychange', () => { if (!document.hidden && !$('#app').hidden) load(); });
 
 // 自动更新：手机会把网页存一份旧的；打开时去网上看有没有新版本，有就马上换成新的
-const VERSION = '2026-11-19b';
+const VERSION = '2026-11-23a';
 $('#ver').textContent = '版本 ' + VERSION;
 (async () => {
   try {
