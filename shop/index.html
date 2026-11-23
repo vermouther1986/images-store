@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="zh">
 <head>
 <meta charset="utf-8">
@@ -236,12 +236,22 @@ function matomePhone(o) {
         if (x.status === '失败') { $('#mtOut').innerHTML = msg('bad', '没认成：' + esc(x.error)); $('#mtGo').disabled = false; return; }
         if (x.status === '完成') {
           const R = x.result, cf = c => `<span class="tag ${c === '高' ? 'ok' : c === '中' ? 'warn' : 'bad'}">${esc(c)}</span>`;
-          $('#mtOut').innerHTML = R.items.map(it => `<div class="item"><img src="${img(partsOf(it.listing_sku)[0].b)}" alt=""><div><div>${cf(it.confidence)} ${full(it.cn || it.listing_sku)} ×${it.count}</div>
-              <div class="muted" style="font-size:12px">截图里：${esc(it.seen_title)}<br>${esc(it.why_zh)}</div></div></div>`).join('')
-            + (R.warn.length ? msg('bad', '⚠ ' + R.warn.map(esc).join('<br>⚠ ')) : '')
-            + `<div class="muted" style="font-size:13px">${esc(R.summary_zh)}</div>`
-            + (R.lines.length ? `<button class="pri" style="margin-top:8px;text-align:left" data-pick='${esc(JSON.stringify(R.lines))}'>✓ 核对没错，确认并扣库存<div style="font-size:12px;font-weight:400">${R.lines.map(l => full(D.P[l.sku]?.cn_name || l.sku) + ' ×' + l.qty).join(' + ')}</div></button>` : '');
-          bindPick(o.id); $('#mtGo').disabled = false; $('#mtGo').textContent = '重新识别'; return;
+          R.items.forEach(i => { i.choices = i.choices && i.choices.length ? i.choices : [{listing_sku: i.listing_sku, cn: i.cn, parts: partsOf(i.listing_sku).map(p => [p.b, p.n])}]; i.pick = 0; });
+          const unsure = i => i.choices.length > 1 && !i.tapped;
+          const lines = () => { const m = {}; R.items.forEach(i => i.choices[i.pick].parts.forEach(([b, n]) => m[b] = (m[b] || 0) + n * i.count)); return Object.entries(m).map(([sku, qty]) => ({sku, qty})); };
+          const draw = () => {
+            const L = lines(), left = R.items.filter(unsure).length, warn = (R.warn || []).filter(w => !/把握不大/.test(w));
+            $('#mtOut').innerHTML = R.items.map((it, k) => { const c = it.choices[it.pick]; return `<div class="item"><img src="${img(partsOf(c.listing_sku)[0].b)}" alt=""><div style="flex:1">
+                <div>${it.tapped ? '<span class="tag ok">你选的</span>' : cf(it.confidence)} ${full(c.cn || c.listing_sku)} ×${it.count}</div>
+                ${it.choices.length > 1 ? `<div style="margin:6px 0">${unsure(it) ? '<div class="warn" style="font-size:13px">是哪个？点一下：</div>' : ''}${it.choices.map((x, n) => `<button data-ch="${k}:${n}" class="${n === it.pick && it.tapped ? 'pri' : ''}" style="width:auto;padding:6px 10px;margin:3px 4px 0 0;font-size:14px">${full((x.cn || x.listing_sku).split(' / ')[0])}${x.price ? ' ¥' + x.price : ''}</button>`).join('')}</div>` : ''}
+                <div class="muted" style="font-size:12px">截图里：${esc(it.seen_title)}</div></div></div>`; }).join('')
+              + (warn.length ? msg('bad', '⚠ ' + warn.map(esc).join('<br>⚠ ')) : '')
+              + (L.length ? (left ? `<button disabled style="margin-top:8px">还有 ${left} 件要点一下选</button>`
+                : `<button class="pri" style="margin-top:8px;text-align:left" data-pick='${esc(JSON.stringify(L))}'>✓ 确认并扣库存<div style="font-size:12px;font-weight:400">${L.map(l => full(D.P[l.sku]?.cn_name || l.sku) + ' ×' + l.qty).join(' + ')}</div></button>`) : '');
+            document.querySelectorAll('#mtOut [data-ch]').forEach(b => b.onclick = () => { const [k, n] = b.dataset.ch.split(':').map(Number); R.items[k].pick = n; R.items[k].tapped = true; draw(); });
+            bindPick(o.id);
+          };
+          draw(); $('#mtGo').disabled = false; $('#mtGo').textContent = '重新识别'; return;
         }
       }
       $('#mtOut').innerHTML = msg('bad', '等太久了，稍后再打开这单看看');
@@ -520,6 +530,11 @@ function drawHome() {
       <div class="kpi ${c2 ? 'act' : ''}" data-go="待发货"><div class="l">待发货</div><div class="v">${c2}</div><div class="s">${c2 ? '点这里看 →' : '都发完了 ✓'}</div></div>
       <div class="kpi ${c1 ? 'bad' : ''}" data-go="待确认"><div class="l">待确认（认不出的商品）</div><div class="v">${c1}</div><div class="s">${c1 ? '在电脑「出库」里选商品' : '没有 ✓'}</div></div>
     </div>
+    ${(() => { const rs = Object.values(D.L).filter(l => (lSold(l) || lPaused(l)) && lStock(l.listing_sku) > 0)
+        .sort((a, b) => String(b.paused_at || b.last_sold_at).localeCompare(String(a.paused_at || a.last_sold_at)));
+      return rs.length ? `<div class="card" style="border:2px solid var(--bad)"><b class="bad">🔔 ${rs.length} 个卖出了、还有库存，要重新上架</b>
+        ${rs.map(l => `<div class="row" data-rl="${esc(l.listing_sku)}" style="padding:7px 0;justify-content:space-between;border-bottom:1px solid var(--line)"><span>${lName(l)}
+          <div class="muted" style="font-size:12.5px">${md(l.paused_at || l.last_sold_at)} ${lPaused(l) ? '合买被公開停止 → 点「公開する」' : '卖出 → 再出品、贴新链接'}</div></span><b>剩 ${lStock(l.listing_sku)} ›</b></div>`).join('')}</div>` : ''; })()}
     ${D.trend ? `<div class="card" id="trCard"><div class="row" style="justify-content:space-between"><b>🔥 圈子趋势周报</b><span class="muted">${esc(D.trend.date)}</span></div>
       <div style="font-size:14px;margin-top:6px;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden">${esc(D.trend.result.summary_zh)}</div>
       <button style="margin-top:8px">看完整周报 →</button></div>` : ''}
@@ -534,6 +549,7 @@ function drawHome() {
   if ($('#trCard')) $('#trCard').onclick = showTrend;
   document.querySelectorAll('#tHome [data-go]').forEach(e => e.onclick = () => { OF = e.dataset.go; drawOrd(); tab('tOrd'); });
   document.querySelectorAll('#tHome [data-sku]').forEach(e => e.onclick = () => showProduct(e.dataset.sku));
+  document.querySelectorAll('#tHome [data-rl]').forEach(e => e.onclick = () => showListing(e.dataset.rl));
 }
 
 // 🔥 趋势周报（电脑上每周出一期，同步到云端）
@@ -601,7 +617,7 @@ setInterval(() => { if (!document.hidden && !$('#app').hidden && $('#sheet').hid
 document.addEventListener('visibilitychange', () => { if (!document.hidden && !$('#app').hidden) load(); });
 
 // 自动更新：手机会把网页存一份旧的；打开时去网上看有没有新版本，有就马上换成新的
-const VERSION = '2026-11-24c';
+const VERSION = '2026-11-24d';
 $('#ver').textContent = '版本 ' + VERSION;
 (async () => {
   try {
