@@ -190,12 +190,65 @@ async function showOrder(id) {
     const o = await q(sb.from('orders').select('*, order_lines(sku, qty, products(cn_name, ja_name))').eq('id', id).single());
     const head = {'待发货': msg('warn', '待发货：对着下面的图核对商品和件数，没问题就点「标记已发货」。库存已经在收到邮件时扣过了，这里不会再扣。'),
       '已发货': msg('ok', `已经发过货了（${t(o.shipped_at)}）。不用再处理，也不会重复扣库存。`),
-      '待确认': quickPick(o) || msg('bad', '这单认不出是哪个商品（买家合购、或者第一次卖的标题），请在电脑上的「出库 / 订单」里选商品。'),
+      '待确认': (/リクエスト|まとめ/.test(o.title || '') && !o.order_lines.length ? `<div style="margin:10px 0;padding:10px;border:1px dashed var(--accent)">
+          <b>📷 合买截图识别</b><div class="muted" style="font-size:13px;margin:4px 0 8px">在煤炉 App 打开这张合买（能看到每件商品标题的画面）截图，在这里选截图（可以多张），AI 认出是哪几件，你核对后再确认。由电脑代跑：${pcOn() ? '<span class="ok">电脑在线 ✓</span>' : '<span class="bad">电脑现在没开</span>'}</div>
+          <input type="file" id="mtFile" accept="image/*" multiple style="margin:0 0 8px"><div id="mtPrev" class="row" style="flex-wrap:wrap;gap:6px"></div>
+          <button class="pri" id="mtGo" disabled style="margin-top:8px">AI 识别（约 1 分钟）</button><div id="mtOut"></div></div>` : '')
+        + (quickPick(o) || msg('bad', '这单认不出是哪个商品（买家合购、或者第一次卖的标题），请在电脑上的「出库 / 订单」里选商品。')),
       '已撤销': msg('bad', '这单已经撤销（煤炉取消或记错），不要发货。')}[o.status] || '';
     $('#view').innerHTML = `<div class="card"><b>${esc(o.mercari_item_id || '手动出库')}</b><div class="muted">${esc(o.title)}</div>${head}
       ${o.order_lines.map(l => `<div class="item"><img src="${img(l.sku)}" alt=""><div><div>${name(l.products?.cn_name)}</div>
         <div class="muted">${esc(l.sku)}</div><div class="num">× ${l.qty}</div></div></div>`).join('')}
       ${o.status === '待发货' ? '<button class="pri big" id="shipBtn" style="margin-top:14px">✓ 核对无误，标记已发货</button>' : ''}</div>`;
+    if ($('#mtFile')) matomePhone(o);
+    bindPick(id);
+    if ($('#shipBtn')) $('#shipBtn').onclick = async () => {
+      $('#shipBtn').disabled = true;
+      await q(sb.from('orders').update({status: '已发货', shipped_at: new Date().toISOString()}).eq('id', id).eq('status', '待发货'));
+      buzz(); showOrder(id);
+    };
+  } catch (e) { $('#view').innerHTML = msg('bad', '找不到这张订单：' + esc(e.message)); }
+}
+// 手机：合买截图 → 云端排队 → 电脑上的 AI 认出几件 → 这里显示，点确认才扣库存
+function shrinkImg(file) {
+  return new Promise((ok, bad) => {
+    const im = new Image(); im.onerror = () => bad(new Error('图片打不开'));
+    im.onload = () => { const s = Math.min(1, 1600 / im.width), c = document.createElement('canvas'); c.width = im.width * s; c.height = im.height * s;
+      c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); URL.revokeObjectURL(im.src); ok(c.toDataURL('image/jpeg', 0.85)); };
+    im.src = URL.createObjectURL(file);
+  });
+}
+function matomePhone(o) {
+  const shots = [];
+  $('#mtFile').onchange = async e => {
+    for (const f of [...e.target.files].slice(0, 4 - shots.length)) { const d = await shrinkImg(f); shots.push(d); $('#mtPrev').insertAdjacentHTML('beforeend', `<img src="${d}" style="height:80px">`); }
+    $('#mtGo').disabled = !shots.length;
+  };
+  $('#mtGo').onclick = async () => {
+    $('#mtGo').disabled = true; $('#mtOut').innerHTML = msg('warn', pcOn() ? '已发给电脑，AI 正在看截图…' : '已排队：电脑没开，开机后会处理（1 小时内）');
+    try {
+      const [r] = await q(sb.from('ai_requests').insert({kind: 'matome', order_id: o.id, images: shots}).select('id'));
+      for (let i = 0; i < 120; i++) {
+        await new Promise(res => setTimeout(res, 3000));
+        if (!$('#mtOut')) return;
+        const [x] = await q(sb.from('ai_requests').select('status,result,error').eq('id', r.id));
+        if (x.status === '处理中') $('#mtOut').innerHTML = msg('warn', 'AI 正在认…');
+        if (x.status === '失败') { $('#mtOut').innerHTML = msg('bad', '没认成：' + esc(x.error)); $('#mtGo').disabled = false; return; }
+        if (x.status === '完成') {
+          const R = x.result, cf = c => `<span class="tag ${c === '高' ? 'ok' : c === '中' ? 'warn' : 'bad'}">${esc(c)}</span>`;
+          $('#mtOut').innerHTML = R.items.map(it => `<div class="item"><img src="${img(partsOf(it.listing_sku)[0].b)}" alt=""><div><div>${cf(it.confidence)} ${full(it.cn || it.listing_sku)} ×${it.count}</div>
+              <div class="muted" style="font-size:12px">截图里：${esc(it.seen_title)}<br>${esc(it.why_zh)}</div></div></div>`).join('')
+            + (R.warn.length ? msg('bad', '⚠ ' + R.warn.map(esc).join('<br>⚠ ')) : '')
+            + `<div class="muted" style="font-size:13px">${esc(R.summary_zh)}</div>`
+            + (R.lines.length ? `<button class="pri" style="margin-top:8px;text-align:left" data-pick='${esc(JSON.stringify(R.lines))}'>✓ 核对没错，确认并扣库存<div style="font-size:12px;font-weight:400">${R.lines.map(l => full(D.P[l.sku]?.cn_name || l.sku) + ' ×' + l.qty).join(' + ')}</div></button>` : '');
+          bindPick(o.id); $('#mtGo').disabled = false; $('#mtGo').textContent = '重新识别'; return;
+        }
+      }
+      $('#mtOut').innerHTML = msg('bad', '等太久了，稍后再打开这单看看');
+    } catch (e) { $('#mtOut').innerHTML = msg('bad', '没发出去：' + esc(e.message)); $('#mtGo').disabled = false; }
+  };
+}
+function bindPick(id) {
     document.querySelectorAll('[data-pick]').forEach(b => b.onclick = async () => {
       const lines = JSON.parse(b.dataset.pick);
       if (!confirm('确认是：\n' + lines.map(l => `${l.sku} ×${l.qty}`).join('\n') + '\n\n确认后扣库存。')) return;
@@ -208,12 +261,6 @@ async function showOrder(id) {
         buzz(); showOrder(id);
       } catch (e) { alert('没确认成功：' + e.message); b.disabled = false; }
     });
-    if ($('#shipBtn')) $('#shipBtn').onclick = async () => {
-      $('#shipBtn').disabled = true;
-      await q(sb.from('orders').update({status: '已发货', shipped_at: new Date().toISOString()}).eq('id', id).eq('status', '待发货'));
-      buzz(); showOrder(id);
-    };
-  } catch (e) { $('#view').innerHTML = msg('bad', '找不到这张订单：' + esc(e.message)); }
 }
 
 // 待确认：以前同样标题卖过的商品 → 一键选（和电脑一样）
@@ -554,7 +601,7 @@ setInterval(() => { if (!document.hidden && !$('#app').hidden && $('#sheet').hid
 document.addEventListener('visibilitychange', () => { if (!document.hidden && !$('#app').hidden) load(); });
 
 // 自动更新：手机会把网页存一份旧的；打开时去网上看有没有新版本，有就马上换成新的
-const VERSION = '2026-11-24a';
+const VERSION = '2026-11-24b';
 $('#ver').textContent = '版本 ' + VERSION;
 (async () => {
   try {
