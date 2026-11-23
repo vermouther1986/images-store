@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="zh">
 <head>
 <meta charset="utf-8">
@@ -221,7 +221,7 @@ function shrinkImg(file) {
 function matomePhone(o) {
   const shots = [];
   $('#mtFile').onchange = async e => {
-    for (const f of [...e.target.files].slice(0, 4 - shots.length)) { const d = await shrinkImg(f); shots.push(d); $('#mtPrev').insertAdjacentHTML('beforeend', `<img src="${d}" style="height:80px">`); }
+    for (const f of [...e.target.files].slice(0, 8 - shots.length)) { const d = await shrinkImg(f); shots.push(d); $('#mtPrev').insertAdjacentHTML('beforeend', `<img src="${d}" style="height:80px">`); }
     $('#mtGo').disabled = !shots.length;
   };
   $('#mtGo').onclick = async () => {
@@ -601,7 +601,7 @@ setInterval(() => { if (!document.hidden && !$('#app').hidden && $('#sheet').hid
 document.addEventListener('visibilitychange', () => { if (!document.hidden && !$('#app').hidden) load(); });
 
 // 自动更新：手机会把网页存一份旧的；打开时去网上看有没有新版本，有就马上换成新的
-const VERSION = '2026-11-24b';
+const VERSION = '2026-11-24c';
 $('#ver').textContent = '版本 ' + VERSION;
 (async () => {
   try {
