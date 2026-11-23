@@ -271,7 +271,7 @@ async function load() {
   try {
     const [stock, lst, ords, items, sets, trends] = await Promise.all([
       q(sb.from('stock_now').select('*')),
-      q(sb.from('listings').select('listing_sku,status,price_jpy,title_manual,title_auto,description,mercari_item_id,fields,updated_at,last_sold_mid,last_sold_at')),
+      q(sb.from('listings').select('listing_sku,status,price_jpy,title_manual,title_auto,description,mercari_item_id,fields,updated_at,last_sold_mid,last_sold_at,paused_mid,paused_at')),
       q(sb.from('orders').select('id,mercari_item_id,title,price_jpy,sold_at,status,counted,source,shipped_at,order_lines(sku,qty)').order('sold_at', {ascending: false}).limit(400)),
       q(sb.from('purchase_items').select('sku,qty,received_qty,purchase_batches(counted)')),
       q(sb.from('settings').select('key,value').in('key', ['煤炉手续费', '运费(円)', '包装材料费(円)', '汇率 人民币→日元', '邮件同步最后时间', '电脑在线'])),
@@ -317,6 +317,9 @@ function lCost(l) {  // 和电脑上的公式一样：成本 = 单价RMB × 汇�
 const lTitle = l => l.title_manual || l.title_auto || '';
 // 卖出后数据库自动改回「待上架」、清掉旧链接 → 提醒重新上架
 const lSold = l => l.status === '待上架' && l.last_sold_at && !l.mercari_item_id;
+// 合买时煤炉把这件自动「公開停止」了（电脑扣库存时数据库自动标）→ 还有货就去重新公开
+const lPaused = l => l.status === '已上架' && !!l.paused_at;
+const lStock = sku => Math.min(...partsOf(sku).map(p => Math.floor((D.P[p.b]?.stock || 0) / p.n)));
 const md = s => { const d = new Date(s); return `${d.getMonth() + 1}/${d.getDate()}`; };
 const pcOn = () => D.pc && Date.now() - new Date(D.pc) < 3 * 60000;  // 电脑上的店铺软件 3 分钟内有心跳
 const lName = l => full(F_(l).cn || D.P[l.listing_sku]?.cn_name || l.listing_sku);
@@ -328,15 +331,17 @@ function lProfit(l, price) {
 function drawList() {
   const rows = Object.values(D.L);
   const k = ($('#lq').value || '').trim().toLowerCase();
-  const F = ['待上架', '已上架', '停售', '全部'];
-  $('#lchips').innerHTML = F.map(f => `<button class="${f === LF ? 'on' : ''}" data-lf="${f}">${f} ${rows.filter(l => f === '全部' || l.status === f).length}</button>`).join('');
-  const list = rows.filter(l => (LF === '全部' || l.status === LF) && (!k || `${l.listing_sku} ${F_(l).cn || ''} ${F_(l).ja || ''} ${lTitle(l)}`.toLowerCase().includes(k)))
+  const F = ['待上架', '已上架', '⏸停止中', '停售', '全部'];
+  const inF = (l, f) => f === '全部' || (f === '⏸停止中' ? lPaused(l) : l.status === f);
+  $('#lchips').innerHTML = F.map(f => { const n = rows.filter(l => inF(l, f)).length; return f === '⏸停止中' && !n ? '' : `<button class="${f === LF ? 'on' : ''}" data-lf="${f}">${f} ${n}</button>`; }).join('');
+  const list = rows.filter(l => inF(l, LF) &&(!k || `${l.listing_sku} ${F_(l).cn || ''} ${F_(l).ja || ''} ${lTitle(l)}`.toLowerCase().includes(k)))
     .sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')));
   $('#llist').innerHTML = list.map(l => { const pf = lProfit(l, l.price_jpy); const combo = /[+*]/.test(l.listing_sku); return `<div class="row2" data-ls="${esc(l.listing_sku)}">
     <img loading="lazy" src="${lImg(l)}" alt="">
     <div><div class="n">${lName(l)}${combo ? ` <span class="tag">${l.listing_sku.includes('+') ? '组合' : '×' + partsOf(l.listing_sku)[0].n}</span>` : ''}</div>
       <div class="m">${esc(l.listing_sku)}${l.mercari_item_id ? ' · ' + esc(l.mercari_item_id) : ''}</div>
-      ${lSold(l) ? `<div class="warn" style="font-size:12.5px">🛒 ${md(l.last_sold_at)} 卖出 · 要重新上架</div>` : ''}</div>
+      ${lSold(l) ? `<div class="warn" style="font-size:12.5px">🛒 ${md(l.last_sold_at)} 卖出 · 要重新上架</div>` : ''}
+      ${lPaused(l) ? `<div class="warn" style="font-size:12.5px">⏸ ${md(l.paused_at)} 合买被公開停止 · ${lStock(l.listing_sku) > 0 ? '要重新公开' : '没货了'}</div>` : ''}</div>
     <div class="r"><div style="font-size:16px;font-weight:700">${yen(l.price_jpy)}</div>${pf ? `<div class="${pf.p < 0 ? 'bad' : pf.m < .35 ? 'warn' : 'ok'}">赚 ${yen(pf.p)}</div>` : ''}</div></div>`; }).join('')
     || '<p class="muted">没有符合的上新商品</p>';
   document.querySelectorAll('[data-lf]').forEach(b => b.onclick = () => { LF = b.dataset.lf; drawList(); });
@@ -358,6 +363,9 @@ function showListing(sku) {
         <span><span class="num">${yen(l.price_jpy)}</span>${pf ? `　<span class="${pf.m < .35 ? 'warn' : 'ok'}">赚 ${yen(pf.p)}（${(pf.m * 100).toFixed(0)}%）</span>` : ''}</span></div></div>
     ${lSold(l) ? msg('warn', `🛒 <b>${t(l.last_sold_at)} 卖出了</b>（旧链接 <a href="https://jp.mercari.com/item/${esc(l.last_sold_mid)}" target="_blank" rel="noopener" style="color:inherit">${esc(l.last_sold_mid)}</a>），已自动改回「待上架」。<br>
       ${stock > 0 ? `还有 ${stock} ${/[+*]/.test(sku) ? '套' : '件'}：在煤炉 App「再出品」，复制新商品的链接，贴到下面。` : '库存 0：补货后再上架。'}`) : ''}
+    ${lPaused(l) ? `<div class="card" style="border-color:var(--warn)"><b class="warn">⏸ ${t(l.paused_at)} 买家合买，煤炉把这件自动「公開停止」了</b>
+      <div style="font-size:14px;margin:6px 0">库存已按合买单（${esc(l.paused_mid)}）扣掉。${stock > 0 ? `还有 <b>${stock}</b> ${/[+*]/.test(sku) ? '套' : '件'}：${l.mercari_item_id ? '点下面「在煤炉打开这个商品」' : '在煤炉 App 找到这件'}，点「公開する」重新公开（链接不变）。` : '库存 0：在煤炉上保持停止就行。'}</div>
+      <button class="pri" id="unpause">✅ ${stock > 0 ? '已重新公开' : '知道了'}</button></div>` : ''}
     <div class="card"><b>📋 煤炉商品链接</b> <span class="muted" style="font-size:13px">贴上后自动变「已上架」</span>
       <input id="midIn" value="${esc(l.mercari_item_id || '')}" placeholder="在煤炉 App 点「共有」→ 复制链接，贴到这里" style="margin:8px 0 6px">
       <button class="pri" id="midSave">保存链接</button><div id="midMsg"></div></div>
@@ -385,6 +393,10 @@ function showListing(sku) {
   $('#tryP').oninput = tryDraw;
   document.querySelectorAll('[data-d]').forEach(b => b.onclick = () => { $('#tryP').value = Math.max(0, (+$('#tryP').value || 0) + +b.dataset.d); tryDraw(); });
   tryDraw();
+  if ($('#unpause')) $('#unpause').onclick = async () => {
+    try { await q(sb.from('listings').update({paused_mid: null, paused_at: null}).eq('listing_sku', sku)); l.paused_mid = l.paused_at = null; buzz(); showListing(sku); }
+    catch (e) { alert('没保存：' + e.message); }
+  };
   $('#midSave').onclick = async () => {
     const m = ($('#midIn').value.match(/m\d{8,}/) || [])[0];
     if (!m) { $('#midMsg').innerHTML = msg('bad', '没找到商品ID：链接里应该有 m 开头的一串数字'); return; }
@@ -542,7 +554,7 @@ setInterval(() => { if (!document.hidden && !$('#app').hidden && $('#sheet').hid
 document.addEventListener('visibilitychange', () => { if (!document.hidden && !$('#app').hidden) load(); });
 
 // 自动更新：手机会把网页存一份旧的；打开时去网上看有没有新版本，有就马上换成新的
-const VERSION = '2026-11-23a';
+const VERSION = '2026-11-24a';
 $('#ver').textContent = '版本 ' + VERSION;
 (async () => {
   try {
