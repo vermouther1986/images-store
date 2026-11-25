@@ -192,7 +192,12 @@ async function showOrder(id) {
       '已发货': msg('ok', `已经发过货了（${t(o.shipped_at)}）。不用再处理，也不会重复扣库存。`),
       '待确认': o.order_lines.length ? '' : (quickPick(o) || '') + `<div id="pkBox"></div>`,
       '已撤销': msg('bad', '这单已经撤销（煤炉取消或记错），不要发货。')}[o.status] || '';
-    $('#view').innerHTML = `<div class="card"><b>${esc(o.mercari_item_id || '手动出库')}</b><div class="muted">${esc(o.title)}</div>${head}
+    const mm = D ? orderMoney(o) : null;
+    const moneyBox = mm ? `<div class="row" style="justify-content:space-between;margin:8px 0;padding:8px 10px;border:1px solid var(--line);font-size:14px;flex-wrap:wrap;gap:6px">
+        <span>成交 <b>${yen(o.price_jpy)}</b></span><span>到手 <b>${yen(mm.get)}</b></span>
+        ${mm.profit != null ? `<span class="${mm.profit < 0 ? 'bad' : mm.profit / o.price_jpy < .35 ? 'warn' : 'ok'}">利润 <b>${mm.profit < 0 ? '−' : ''}${yen(Math.abs(mm.profit))}</b> ${Math.round(mm.profit / o.price_jpy * 100)}%</span>` : '<span class="muted">选好商品后算利润</span>'}
+        ${mm.profit != null ? `<div class="muted" style="width:100%;font-size:12px">到手 = 成交价 − 煤炉手续费 ${Math.round(D.fee * 100)}%；利润 = 到手 − 运费包装 ${yen(D.ship)} − 商品成本 ${yen(mm.cost)}${mm.miss.length ? '（⚠ ' + mm.miss.map(esc).join('、') + ' 缺成本）' : ''}</div>` : ''}</div>` : '';
+    $('#view').innerHTML = `<div class="card"><b>${esc(o.mercari_item_id || '手动出库')}</b><div class="muted">${esc(o.title)}</div>${moneyBox}${head}
       ${o.order_lines.map(l => `<div class="item"><img src="${img(l.sku)}" alt=""><div><div>${name(l.products?.cn_name)}</div>
         <div class="muted">${esc(l.sku)}</div><div class="num">× ${l.qty}</div></div></div>`).join('')}
       ${o.status === '待发货' ? '<button class="pri big" id="shipBtn" style="margin-top:14px">✓ 核对无误，标记已发货</button>' : ''}
@@ -564,10 +569,20 @@ function showListing(sku) {
 
 const valid = o => o.status !== '已撤销' && o.status !== '待确认';
 const dayKey = d => { const x = new Date(d); return `${x.getFullYear()}-${x.getMonth() + 1}-${x.getDate()}`; };
-function profitOf(o) {
-  const cost = (o.order_lines || []).reduce((a, l) => a + (D.P[l.sku]?.unit_price_rmb || 0) * 1.06 * D.rate * l.qty, 0);
-  return (o.price_jpy || 0) * (1 - D.fee) - D.ship - cost;
+// 和电脑一样的算法：到手 = 成交价 − 煤炉手续费（舍去零头）；利润 = 到手 − 运费包装 − 商品成本（上新资料的单价RMB，没有就进货单价×1.06，×汇率×件数）
+function orderMoney(o) {
+  if (!o.price_jpy) return null;
+  const get = o.price_jpy - Math.floor(o.price_jpy * D.fee), lines = o.order_lines || [];
+  if (!lines.length) return {get};
+  const unit = sku => { const own = D.L[sku] ? fnum(F_(D.L[sku]).cost_rmb) : null; return own ?? (D.P[sku]?.unit_price_rmb != null ? D.P[sku].unit_price_rmb * 1.06 : null); };
+  const miss = lines.filter(l => unit(l.sku) == null).map(l => l.sku);
+  const cost = Math.round(lines.reduce((a, l) => a + (unit(l.sku) || 0) * D.rate * l.qty, 0));
+  return {get, cost, profit: Math.round(get - D.ship - cost), miss};
 }
+function profitOf(o) { const m = orderMoney(o); return m && m.profit != null ? m.profit : 0; }
+const moneyLine = o => { const m = orderMoney(o); if (!m) return '';
+  const c = m.profit == null ? '' : m.profit < 0 ? 'bad' : m.profit / o.price_jpy < .35 ? 'warn' : 'ok';
+  return `到手 ${yen(m.get)}${m.profit != null ? ` · <span class="${c}">利润 ${m.profit < 0 ? '−' : ''}${yen(Math.abs(m.profit))}</span>` : ''}`; };
 const full = s => esc(String(s || '').replace(/\s*\/\s*/g, ' / '));  // 完整中文名（同款不同规格要能分开）
 const pname = sku => full(D.P[sku]?.cn_name || sku);
 
@@ -665,7 +680,7 @@ function drawOrd() {
     <img loading="lazy" src="${o.order_lines[0] ? img(o.order_lines[0].sku) : ''}" alt="">
     <div><div class="n">${o.order_lines.map(l => pname(l.sku) + (l.qty > 1 ? ` ×${l.qty}` : '')).join('、') || esc(o.title)}</div>
       <div class="m">${t(o.sold_at)} · ${esc(o.mercari_item_id || o.source)}</div></div>
-    <div class="r"><span class="tag ${STAG[o.status] || ''}">${esc(o.status)}</span><div style="margin-top:4px">${yen(o.price_jpy)}</div>${o.counted ? '' : '<div class="m">盘点前</div>'}</div></div>`).join('')
+    <div class="r"><span class="tag ${STAG[o.status] || ''}">${esc(o.status)}</span><div style="margin-top:4px">${yen(o.price_jpy)}</div><div class="m" style="white-space:nowrap${o.status === '已撤销' ? ';text-decoration:line-through' : ''}">${moneyLine(o)}</div>${o.counted ? '' : '<div class="m">盘点前</div>'}</div></div>`).join('')
     || `<p class="muted">${OF === '需要处理' ? '没有要处理的订单 ✓' : '没有订单'}</p>`;
   document.querySelectorAll('[data-of]').forEach(b => b.onclick = () => { OF = b.dataset.of; drawOrd(); });
   document.querySelectorAll('#olist [data-or]').forEach(e => e.onclick = () => showOrder(e.dataset.or));
@@ -682,7 +697,7 @@ setInterval(() => { if (!document.hidden && !$('#app').hidden && $('#sheet').hid
 document.addEventListener('visibilitychange', () => { if (!document.hidden && !$('#app').hidden) load(); });
 
 // 自动更新：手机会把网页存一份旧的；打开时去网上看有没有新版本，有就马上换成新的
-const VERSION = '2026-11-26c';
+const VERSION = '2026-11-26d';
 $('#ver').textContent = '版本 ' + VERSION;
 (async () => {
   try {
