@@ -190,17 +190,13 @@ async function showOrder(id) {
     const o = await q(sb.from('orders').select('*, order_lines(sku, qty, products(cn_name, ja_name))').eq('id', id).single());
     const head = {'待发货': msg('warn', '待发货：对着下面的图核对商品和件数，没问题就点「标记已发货」。库存已经在收到邮件时扣过了，这里不会再扣。'),
       '已发货': msg('ok', `已经发过货了（${t(o.shipped_at)}）。不用再处理，也不会重复扣库存。`),
-      '待确认': (/リクエスト|まとめ/.test(o.title || '') && !o.order_lines.length ? `<div style="margin:10px 0;padding:10px;border:1px dashed var(--accent)">
-          <b>📷 合买截图识别</b><div class="muted" style="font-size:13px;margin:4px 0 8px">在煤炉 App 打开这张合买（能看到每件商品标题的画面）截图，在这里选截图（可以多张），AI 认出是哪几件，你核对后再确认。由电脑代跑：${pcOn() ? '<span class="ok">电脑在线 ✓</span>' : '<span class="bad">电脑现在没开</span>'}</div>
-          <input type="file" id="mtFile" accept="image/*" multiple style="margin:0 0 8px"><div id="mtPrev" class="row" style="flex-wrap:wrap;gap:6px"></div>
-          <button class="pri" id="mtGo" disabled style="margin-top:8px">AI 识别（约 1 分钟）</button><div id="mtOut"></div></div>` : '')
-        + (quickPick(o) || msg('bad', '这单认不出是哪个商品（买家合购、或者第一次卖的标题），请在电脑上的「出库 / 订单」里选商品。')),
+      '待确认': o.order_lines.length ? '' : (quickPick(o) || '') + `<div id="pkBox"></div>`,
       '已撤销': msg('bad', '这单已经撤销（煤炉取消或记错），不要发货。')}[o.status] || '';
     $('#view').innerHTML = `<div class="card"><b>${esc(o.mercari_item_id || '手动出库')}</b><div class="muted">${esc(o.title)}</div>${head}
       ${o.order_lines.map(l => `<div class="item"><img src="${img(l.sku)}" alt=""><div><div>${name(l.products?.cn_name)}</div>
         <div class="muted">${esc(l.sku)}</div><div class="num">× ${l.qty}</div></div></div>`).join('')}
       ${o.status === '待发货' ? '<button class="pri big" id="shipBtn" style="margin-top:14px">✓ 核对无误，标记已发货</button>' : ''}</div>`;
-    if ($('#mtFile')) matomePhone(o);
+    if ($('#pkBox')) phonePicker(o);
     bindPick(id);
     if ($('#shipBtn')) $('#shipBtn').onclick = async () => {
       $('#shipBtn').disabled = true;
@@ -273,6 +269,63 @@ function bindPick(id) {
     });
 }
 
+// 待确认：看图选商品（和电脑一样）→ 直接写云数据库扣库存，电脑关着也行
+function phonePicker(o) {
+  const sel = {};  // sku → 件数
+  const matome = /リクエスト|まとめ/.test(o.title || '');
+  // 和订单标题像的排前面（标题里的词出现在商品日文名 / 上架标题里），再按有库存
+  const words = tnorm(o.title).split(/[\s　]+/).concat(String(o.title || '').normalize('NFKC').split(/\s+/)).map(w => w.toLowerCase()).filter(w => w.length >= 2 && !/^(ミニ四駆|社外品|セット|リクエスト|まとめ商品|様)$/.test(w));
+  const ltitles = {};
+  Object.values(D.L).forEach(l => partsOf(l.listing_sku).forEach(p => ltitles[p.b] = (ltitles[p.b] || '') + ' ' + lTitle(l)));
+  const hay = p => `${p.ja_name || ''} ${ltitles[p.sku] || ''}`.normalize('NFKC').toLowerCase();
+  const score = p => words.filter(w => hay(p).includes(w)).length;
+  const all = D.stock.slice().map(p => ({p, s: matome ? 0 : score(p)})).sort((a, b) => b.s - a.s || (b.p.stock > 0) - (a.p.stock > 0) || String(a.p.cn_name).localeCompare(String(b.p.cn_name)));
+  $('#pkBox').innerHTML = `<div style="margin-top:10px"><b>📷 看图选商品</b> <span class="muted" style="font-size:13px">点图片加一件，可以选好几样（合买就把每一件都点上）。电脑关着也能确认。</span>
+      <div id="pkSel" style="margin:8px 0"></div>
+      <input id="pkQ" type="search" placeholder="搜中文名 / 日文名 / SKU" style="margin:0 0 8px">
+      <div id="pkGrid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;max-height:60vh;overflow:auto"></div></div>`;
+  const drawSel = () => {
+    const ks = Object.keys(sel);
+    $('#pkSel').innerHTML = !ks.length ? '<div class="muted" style="font-size:13px">还没选。点下面的图片。</div>'
+      : ks.map(s => `<div class="row" style="gap:8px;padding:6px 0;border-bottom:1px solid var(--line);align-items:center">
+          <img src="${img(s)}" alt="" style="width:48px;height:48px;object-fit:contain;background:#fff">
+          <div style="flex:1;min-width:0;font-size:14px">${full(D.P[s]?.cn_name || s)}<div class="muted" style="font-size:12px">${esc(s)} · 库存 ${D.P[s]?.stock ?? 0}</div></div>
+          <button data-dn="${esc(s)}" style="width:40px;padding:6px 0">−</button><b style="min-width:24px;text-align:center">${sel[s]}</b><button data-up="${esc(s)}" style="width:40px;padding:6px 0">＋</button></div>`).join('')
+        + `<label class="row" style="gap:6px;margin:8px 0;font-size:14px"><input type="checkbox" id="pkRem" ${matome ? '' : 'checked'} style="width:auto">记住这个标题，以后同样标题自动认${matome ? '（合买标题每次不一样，不用记）' : ''}</label>
+          <button class="pri" id="pkOk">✓ 确认并扣库存（${ks.reduce((a, s) => a + sel[s], 0)} 件）</button>`;
+    document.querySelectorAll('[data-up]').forEach(b => b.onclick = () => { sel[b.dataset.up]++; drawSel(); });
+    document.querySelectorAll('[data-dn]').forEach(b => b.onclick = () => { if (--sel[b.dataset.dn] <= 0) delete sel[b.dataset.dn]; drawSel(); drawGrid(); });
+    if ($('#pkOk')) $('#pkOk').onclick = async () => {
+      const lines = Object.entries(sel).map(([sku, qty]) => ({sku, qty}));
+      if (!confirm('确认卖出的是：\n' + lines.map(l => `${D.P[l.sku]?.cn_name || l.sku} ×${l.qty}`).join('\n') + '\n\n确认后扣库存。')) return;
+      $('#pkOk').disabled = true;
+      try {
+        const cur = await q(sb.from('orders').select('status,order_lines(sku)').eq('id', o.id).single());
+        if (cur.status !== '待确认' || cur.order_lines.length) { alert('这单已经处理过了'); showOrder(o.id); return; }
+        await q(sb.from('order_lines').insert(lines.map(l => ({order_id: o.id, sku: l.sku, qty: l.qty}))));
+        await q(sb.from('orders').update({status: '待发货', note: '在手机上选好商品'}).eq('id', o.id).eq('status', '待确认'));
+        let remNote = '';
+        if ($('#pkRem')?.checked && o.title) {
+          try { await q(sb.from('title_map').upsert(lines.map(l => ({mercari_title: o.title, sku: l.sku, qty: l.qty, note: '手机确认'})))); }
+          catch (e) { remNote = '\n（标题没记住：' + e.message + '）'; }
+        }
+        buzz(); if (remNote) alert('已扣库存' + remNote); showOrder(o.id);
+      } catch (e) { alert('没确认成功：' + e.message); $('#pkOk').disabled = false; }
+    };
+  };
+  const drawGrid = () => {
+    const k = ($('#pkQ').value || '').trim().toLowerCase();
+    const list = all.filter(({p}) => !k || `${p.sku} ${p.cn_name} ${p.ja_name}`.toLowerCase().includes(k)).slice(0, 90);
+    $('#pkGrid').innerHTML = list.map(({p, s}) => `<div data-add="${esc(p.sku)}" style="border:1px solid ${sel[p.sku] ? 'var(--accent)' : 'var(--line)'};padding:4px;position:relative;${p.stock > 0 ? '' : 'opacity:.45'}">
+        <img loading="lazy" src="${img(p.sku)}" alt="" style="width:100%;aspect-ratio:1;object-fit:contain;background:#fff">
+        <div style="font-size:12px;line-height:1.3;max-height:3.9em;overflow:hidden">${full(p.cn_name)}</div>
+        <div class="muted" style="font-size:11px">库存 ${p.stock}${s ? ' · <span class="ok">像</span>' : ''}</div>
+        ${sel[p.sku] ? `<b style="position:absolute;top:4px;right:4px;background:var(--accent);color:#000;padding:0 6px">×${sel[p.sku]}</b>` : ''}</div>`).join('') || '<p class="muted">没找到</p>';
+    document.querySelectorAll('[data-add]').forEach(e => e.onclick = () => { sel[e.dataset.add] = (sel[e.dataset.add] || 0) + 1; buzz(); drawSel(); drawGrid(); });
+  };
+  $('#pkQ').oninput = drawGrid;
+  drawSel(); drawGrid();
+}
 // 待确认：以前同样标题卖过的商品 → 一键选（和电脑一样）
 const tnorm = t => String(t || '').replace(/（(自动|人工)[^）]*）\s*$/, '').normalize('NFKC').replace(/\s+/g, '').toLowerCase();
 function quickPick(o) {
@@ -287,7 +340,7 @@ function quickPick(o) {
   return msg('warn', '这个标题以前卖过下面的商品，点一下就确认（会扣库存）：') + opts.map(([k, n]) => {
     const ls = JSON.parse(k);
     return `<button class="pri" style="margin:6px 0;text-align:left" data-pick='${esc(k)}'>✓ ${ls.map(l => full(D.P[l.sku]?.cn_name || l.sku) + ' ×' + l.qty).join(' + ')}<div style="font-size:12px;font-weight:400">（以前卖过 ${n} 次）</div></button>`;
-  }).join('') + '<p class="muted" style="font-size:12.5px">都不是的话，请在电脑上选。</p>';
+  }).join('') + '<p class="muted" style="font-size:12.5px">都不是的话，在下面看图选。</p>';
 }
 
 // ───────── 商品：看库存 ─────────
@@ -528,7 +581,7 @@ function drawHome() {
       <div class="kpi"><div class="l">今天卖出</div><div class="v">${tD.n} 单</div><div class="s">${yen(tD.rev)} · 利润约 ${yen(tD.pf)}</div></div>
       <div class="kpi"><div class="l">本月卖出</div><div class="v">${tM.n} 单</div><div class="s">${yen(tM.rev)} · 利润约 ${yen(tM.pf)}</div></div>
       <div class="kpi ${c2 ? 'act' : ''}" data-go="待发货"><div class="l">待发货</div><div class="v">${c2}</div><div class="s">${c2 ? '点这里看 →' : '都发完了 ✓'}</div></div>
-      <div class="kpi ${c1 ? 'bad' : ''}" data-go="待确认"><div class="l">待确认（认不出的商品）</div><div class="v">${c1}</div><div class="s">${c1 ? '在电脑「出库」里选商品' : '没有 ✓'}</div></div>
+      <div class="kpi ${c1 ? 'bad' : ''}" data-go="待确认"><div class="l">待确认（认不出的商品）</div><div class="v">${c1}</div><div class="s">${c1 ? '点这里，看图选商品 →' : '没有 ✓'}</div></div>
     </div>
     ${(() => { const rs = Object.values(D.L).filter(l => (lSold(l) || lPaused(l)) && lStock(l.listing_sku) > 0)
         .sort((a, b) => String(b.paused_at || b.last_sold_at).localeCompare(String(a.paused_at || a.last_sold_at)));
@@ -617,7 +670,7 @@ setInterval(() => { if (!document.hidden && !$('#app').hidden && $('#sheet').hid
 document.addEventListener('visibilitychange', () => { if (!document.hidden && !$('#app').hidden) load(); });
 
 // 自动更新：手机会把网页存一份旧的；打开时去网上看有没有新版本，有就马上换成新的
-const VERSION = '2026-11-24d';
+const VERSION = '2026-11-26a';
 $('#ver').textContent = '版本 ' + VERSION;
 (async () => {
   try {
