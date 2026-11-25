@@ -195,7 +195,16 @@ async function showOrder(id) {
     $('#view').innerHTML = `<div class="card"><b>${esc(o.mercari_item_id || '手动出库')}</b><div class="muted">${esc(o.title)}</div>${head}
       ${o.order_lines.map(l => `<div class="item"><img src="${img(l.sku)}" alt=""><div><div>${name(l.products?.cn_name)}</div>
         <div class="muted">${esc(l.sku)}</div><div class="num">× ${l.qty}</div></div></div>`).join('')}
-      ${o.status === '待发货' ? '<button class="pri big" id="shipBtn" style="margin-top:14px">✓ 核对无误，标记已发货</button>' : ''}</div>`;
+      ${o.status === '待发货' ? '<button class="pri big" id="shipBtn" style="margin-top:14px">✓ 核对无误，标记已发货</button>' : ''}
+      ${o.counted && ['待发货', '已发货'].includes(o.status) ? '<button id="cancelBtn" style="margin-top:14px;border-color:var(--bad);color:var(--bad)">撤销这张订单（库存加回）</button>' : ''}</div>`;
+    if ($('#cancelBtn')) $('#cancelBtn').onclick = async () => {  // 和电脑一样：改成「已撤销」，数据库自动把库存加回（原记录保留）
+      if (!confirm('撤销这张订单？\n库存会加回（写一条「撤销」记录，原记录保留）。\n一般只有煤炉取消交易、或者记错了才需要撤销。')) return;
+      $('#cancelBtn').disabled = true;
+      try {
+        await q(sb.from('orders').update({status: '已撤销', note: '在手机上撤销，库存已加回'}).eq('id', id).in('status', ['待发货', '已发货']));
+        buzz(); showOrder(id);
+      } catch (e) { alert('没撤销成功：' + e.message); $('#cancelBtn').disabled = false; }
+    };
     if ($('#pkBox')) phonePicker(o);
     bindPick(id);
     if ($('#shipBtn')) $('#shipBtn').onclick = async () => {
@@ -673,7 +682,7 @@ setInterval(() => { if (!document.hidden && !$('#app').hidden && $('#sheet').hid
 document.addEventListener('visibilitychange', () => { if (!document.hidden && !$('#app').hidden) load(); });
 
 // 自动更新：手机会把网页存一份旧的；打开时去网上看有没有新版本，有就马上换成新的
-const VERSION = '2026-11-26b';
+const VERSION = '2026-11-26c';
 $('#ver').textContent = '版本 ' + VERSION;
 (async () => {
   try {
