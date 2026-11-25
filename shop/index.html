@@ -433,7 +433,10 @@ const lStock = sku => Math.min(...partsOf(sku).map(p => Math.floor((D.P[p.b]?.st
 const md = s => { const d = new Date(s); return `${d.getMonth() + 1}/${d.getDate()}`; };
 const pcOn = () => D.pc && Date.now() - new Date(D.pc) < 3 * 60000;  // 电脑上的店铺软件 3 分钟内有心跳
 const lName = l => full(F_(l).cn || D.P[l.listing_sku]?.cn_name || l.listing_sku);
-const lImg = l => img(partsOf(l.listing_sku)[0].b);
+// 上架图：电脑上编辑过的 / N件一卖 / 组合的图，电脑自动传到 GitHub 的 listing/（和电脑上新页同一张）；没有就用商品照片
+const LIMG = 'https://raw.githubusercontent.com/vermouther1986/images-store/main/listing/';
+const lImg = l => { const v = F_(l).img_pub; return v ? LIMG + encodeURIComponent(l.listing_sku.replace(/\*/g, '×')) + '.jpg?v=' + v : img(partsOf(l.listing_sku)[0].b); };
+const lImgFb = l => `this.onerror=null;this.src='${img(partsOf(l.listing_sku)[0].b)}'`;
 function lProfit(l, price) {
   const c = lCost(l); if (c == null || !price) return null;
   const p = Math.round(price * (1 - D.fee) - c - D.ship); return {p, m: p / price, total: c + D.ship};
@@ -447,7 +450,7 @@ function drawList() {
   const list = rows.filter(l => inF(l, LF) &&(!k || `${l.listing_sku} ${F_(l).cn || ''} ${F_(l).ja || ''} ${lTitle(l)}`.toLowerCase().includes(k)))
     .sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')));
   $('#llist').innerHTML = list.map(l => { const pf = lProfit(l, l.price_jpy); const combo = /[+*]/.test(l.listing_sku); return `<div class="row2" data-ls="${esc(l.listing_sku)}">
-    <img loading="lazy" src="${lImg(l)}" alt="">
+    <img loading="lazy" src="${lImg(l)}" onerror="${lImgFb(l)}" alt="">
     <div><div class="n">${lName(l)}${combo ? ` <span class="tag">${l.listing_sku.includes('+') ? '组合' : '×' + partsOf(l.listing_sku)[0].n}</span>` : ''}</div>
       <div class="m">${esc(l.listing_sku)}${l.mercari_item_id ? ' · ' + esc(l.mercari_item_id) : ''}</div>
       ${lSold(l) ? `<div class="warn" style="font-size:12.5px">🛒 ${md(l.last_sold_at)} 卖出 · 要重新上架</div>` : ''}
@@ -467,7 +470,7 @@ function showListing(sku) {
   const l = D.L[sku]; if (!l) { $('#view').innerHTML = msg('bad', '找不到这个上新商品'); return; }
   const stock = Math.min(...partsOf(sku).map(p => Math.floor((D.P[p.b]?.stock || 0) / p.n)));
   const pf = lProfit(l, l.price_jpy);
-  $('#view').innerHTML = `<div class="card"><img class="big-img" src="${lImg(l)}" alt="">
+  $('#view').innerHTML = `<div class="card"><img class="big-img" src="${lImg(l)}" onerror="${lImgFb(l)}" alt="">
       <div style="margin-top:8px;font-size:18px">${lName(l)}</div><div class="muted">${esc(sku)} · 可卖 ${stock} ${/[+*]/.test(sku) ? '套' : '件'}</div>
       <div class="row" style="margin-top:8px;justify-content:space-between"><span class="tag ${l.status === '已上架' ? 'ok' : 'warn'}">${esc(l.status)}</span>
         <span><span class="num">${yen(l.price_jpy)}</span>${pf ? `　<span class="${pf.m < .35 ? 'warn' : 'ok'}">赚 ${yen(pf.p)}（${(pf.m * 100).toFixed(0)}%）</span>` : ''}</span></div></div>
@@ -670,7 +673,7 @@ setInterval(() => { if (!document.hidden && !$('#app').hidden && $('#sheet').hid
 document.addEventListener('visibilitychange', () => { if (!document.hidden && !$('#app').hidden) load(); });
 
 // 自动更新：手机会把网页存一份旧的；打开时去网上看有没有新版本，有就马上换成新的
-const VERSION = '2026-11-26a';
+const VERSION = '2026-11-26b';
 $('#ver').textContent = '版本 ' + VERSION;
 (async () => {
   try {
